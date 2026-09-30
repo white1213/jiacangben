@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// 应用版本号（与 pubspec.yaml version 保持一致）
-const String kAppVersion = '1.2.3';
+const String kAppVersion = '1.4.1';
 
 /// 应用名
 const String kAppName = '家藏本';
