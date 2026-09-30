@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../consts.dart';
+import '../../database/category_service.dart';
 import '../../database/supply_service.dart';
 import '../../database/tag_service.dart';
 import '../../model/home_supply.dart';
+import '../../model/item_category.dart';
 import '../../model/tag.dart';
 import '../../model/tag_relation.dart';
 import '../../service/expiry_service.dart';
@@ -36,6 +38,8 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
 
   List<Tag> _allTags = const [];
   Set<int> _selectedTagIds = {};
+  List<ItemCategory> _categories = const []; // v1.1：消耗物资分类
+  int? _categoryId;
 
   bool get _isEditing => widget.supply != null;
 
@@ -50,6 +54,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     _expireDate = s?.expireDate.toLocal();
     _openDate = s?.openDate?.toLocal();
     _isOpened = s?.isOpened ?? false;
+    _categoryId = s?.categoryId;
     _loadTags();
   }
 
@@ -63,6 +68,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
 
   Future<void> _loadTags() async {
     final tags = await _tagService.listAll();
+    final categories = await CategoryService().listAll(targetType: ItemCategory.targetTypeSupply);
     final existing = widget.supply;
     final byOwner = existing?.id == null
         ? const <int, List<Tag>>{}
@@ -70,6 +76,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     if (!mounted) return;
     setState(() {
       _allTags = tags;
+      _categories = categories;
       _selectedTagIds = (byOwner[existing!.id] ?? const <Tag>[]).map((t) => t.id!).toSet();
     });
   }
@@ -122,6 +129,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       isOpened: _isOpened,
       openDate: _isOpened ? _openDate : null,
       afterOpenDays: _isOpened ? afterOpenDays : null,
+      categoryId: _categoryId,
       note: note.isEmpty ? null : note,
     );
     if (_isEditing) {
@@ -207,6 +215,16 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
           TextFormField(
             controller: _nameCtrl,
             decoration: const InputDecoration(labelText: '名称 *', hintText: '如：牛奶、洗面奶'),
+          ),
+          // v1.1：分类下拉（消耗物资分类）
+          DropdownButtonFormField<int?>(
+            initialValue: _categoryId,
+            decoration: const InputDecoration(labelText: '分类'),
+            items: [
+              const DropdownMenuItem<int?>(value: null, child: Text('无分类')),
+              for (final c in _categories) DropdownMenuItem<int?>(value: c.id, child: Text(c.name)),
+            ],
+            onChanged: (v) => setState(() => _categoryId = v),
           ),
           _dateTile('购入日期 *', _purchaseDate, (d) => setState(() => _purchaseDate = d)),
           _dateTile('外包装到期日期 *', _expireDate, (d) => setState(() => _expireDate = d)),

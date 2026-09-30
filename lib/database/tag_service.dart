@@ -67,4 +67,46 @@ class TagService {
     }
     return result;
   }
+
+  /// v1.1：各标签的关联计数：tagId -> 关联的物资/物件数量
+  Future<Map<int, int>> relationCounts() async {
+    final db = await _dbHelper.database;
+    final rows = await db.rawQuery(
+      'SELECT tagId, COUNT(*) AS c FROM tag_relation GROUP BY tagId',
+    );
+    return {for (final row in rows) row['tagId'] as int: row['c'] as int};
+  }
+
+  /// v1.1：重命名标签（单事务）。若目标名已存在则抛 StateError，由页面提示。
+  Future<void> rename(int tagId, String newName) async {
+    final name = newName.trim();
+    if (name.isEmpty) {
+      throw ArgumentError('标签名不能为空');
+    }
+    final db = await _dbHelper.database;
+    await db.transaction((txn) async {
+      final dup = await txn.query('tag', where: 'name = ? AND id != ?', whereArgs: [name, tagId], limit: 1);
+      if (dup.isNotEmpty) {
+        throw StateError('标签「$name」已存在');
+      }
+      // 关联记录通过 tagId 引用标签，改名不影响关联；整个操作置于事务保证一致性
+      await txn.update('tag', {'name': name}, where: 'id = ?', whereArgs: [tagId]);
+    });
+  }
+
+  /// v1.1：仅当标签无任何关联记录时才允许删除，返回是否删除成功
+  Future<bool> deleteIfUnused(int tagId) async {
+    final db = await _dbHelper.database;
+    return db.transaction<bool>((txn) async {
+      final relations = await txn.query(
+        'tag_relation',
+        where: 'tagId = ?',
+        whereArgs: [tagId],
+        limit: 1,
+      );
+      if (relations.isNotEmpty) return false;
+      await txn.delete('tag', where: 'id = ?', whereArgs: [tagId]);
+      return true;
+    });
+  }
 }

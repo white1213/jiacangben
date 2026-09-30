@@ -11,6 +11,7 @@ class HomeSupply {
   bool isOpened; // 是否开封
   DateTime? openDate; // 开封日期（UTC）
   int? afterOpenDays; // 开封后建议使用天数，可为 null
+  int? categoryId; // v1.1：归属分类 item_category.id，可为 null
   String? note;
 
   HomeSupply({
@@ -21,6 +22,7 @@ class HomeSupply {
     this.isOpened = false,
     this.openDate,
     this.afterOpenDays,
+    this.categoryId,
     this.note,
   });
 
@@ -35,6 +37,7 @@ class HomeSupply {
         'isOpened': isOpened ? 1 : 0,
         'openDate': toUtcIsoString(openDate),
         'afterOpenDays': afterOpenDays,
+        'categoryId': categoryId,
         'note': note,
       };
 
@@ -46,6 +49,7 @@ class HomeSupply {
         isOpened: map['isOpened'] == 1 || map['isOpened'] == true,
         openDate: parseUtc(map['openDate'] as String?),
         afterOpenDays: map['afterOpenDays'] == null ? null : (map['afterOpenDays'] as num).toInt(),
+        categoryId: map['categoryId'] == null ? null : (map['categoryId'] as num).toInt(),
         note: map['note'] as String?,
       );
 }

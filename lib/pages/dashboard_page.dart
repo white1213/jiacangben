@@ -9,12 +9,14 @@ import '../model/storage_location.dart';
 import '../model/stored_item.dart';
 import '../service/expiry_service.dart';
 import '../utils/date_utils.dart';
+import 'category_manage_page.dart';
 import 'edit/item_edit_page.dart';
 import 'edit/supply_edit_page.dart';
 import 'backup_restore_page.dart';
 import 'item_list_page.dart';
 import 'location_list_page.dart';
 import 'supply_list_page.dart';
+import 'tag_manage_page.dart';
 
 /// 首页仪表盘（启动页）
 class HomeDashboardPage extends StatefulWidget {
@@ -257,6 +259,9 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
         entry(Icons.inventory_2, '收纳位置管理', () => _open(const StorageLocationListPage())),
         entry(Icons.category_outlined, '全部物件', () => _open(const StoredItemListPage())),
         entry(Icons.settings_backup_restore, '备份与恢复', () => _open(const BackupRestorePage())),
+        // v1.1 新增入口
+        entry(Icons.category, '分类管理', () => _open(const CategoryManagePage())),
+        entry(Icons.label_outline, '标签管理', () => _open(const TagManagePage())),
       ],
     );
   }

@@ -5,9 +5,15 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import '../service/backup_service.dart';
+import '../database/item_service.dart';
+import '../database/location_service.dart';
+import '../database/supply_service.dart';
+import '../service/export_service.dart';
+import '../service/expiry_service.dart';
 import '../utils/date_utils.dart';
 
 /// 备份与恢复页面
+/// v1.1 新增：子集导出（CSV / Markdown 清单，仅导出阅读用，不支持导入）
 class BackupRestorePage extends StatefulWidget {
   const BackupRestorePage({super.key});
 
@@ -17,7 +23,12 @@ class BackupRestorePage extends StatefulWidget {
 
 class _BackupRestorePageState extends State<BackupRestorePage> {
   final BackupService _service = BackupService();
+  final ExportService _exportService = ExportService();
   final TextEditingController _pasteController = TextEditingController();
+
+  // v1.1 子集导出选项
+  String _exportType = 'supply'; // supply / item
+  bool _exportAsMarkdown = false;
 
   bool _busy = false;
   bool _loadingFiles = true;
@@ -130,10 +141,12 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                 ],
               ),
             )
-          : ListView(
+            : ListView(
               padding: const EdgeInsets.all(12),
               children: [
                 _buildExportCard(),
+                const SizedBox(height: 12),
+                _buildSubsetExportCard(),
                 const SizedBox(height: 12),
                 _buildFileImportCard(),
                 const SizedBox(height: 12),
@@ -168,6 +181,104 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
               onPressed: _export,
               icon: const Icon(Icons.file_download_outlined),
               label: const Text('导出备份'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// v1.1：子集导出（CSV / Markdown 清单），仅外部阅读用，不能导入回 App
+  Future<void> _exportSubset() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final isMd = _exportAsMarkdown;
+      late File file;
+      late String clipboardText;
+      if (_exportType == 'supply') {
+        final supplies = await SupplyService().listAll();
+        supplies.sort((a, b) => ExpiryService.finalExpireDate(a).compareTo(ExpiryService.finalExpireDate(b)));
+        final text = isMd ? _exportService.buildSuppliesMarkdown(supplies) : kUtf8Bom + _exportService.buildSuppliesCsv(supplies);
+        file = await _exportService.exportText('supplies', text, isMarkdown: isMd);
+        // 剪贴板里不放 BOM
+        clipboardText = isMd ? text : text.substring(kUtf8Bom.length);
+      } else {
+        final items = await ItemService().listAll();
+        final locations = await LocationService().listAll();
+        final names = {for (final l in locations) if (l.id != null) l.id!: l.name};
+        final text = isMd ? _exportService.buildItemsMarkdown(items, locationNames: names) : kUtf8Bom + _exportService.buildItemsCsv(items, locationNames: names);
+        file = await _exportService.exportText('items', text, isMarkdown: isMd);
+        clipboardText = isMd ? text : text.substring(kUtf8Bom.length);
+      }
+      await Clipboard.setData(ClipboardData(text: clipboardText));
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('导出成功'),
+          content: Text('清单文件：\n${file.path}\n\n内容已复制到剪贴板。清单仅供外部阅读，不能导入回 App。'),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('知道了'))],
+        ),
+      );
+    } catch (e) {
+      if (mounted) _snack('导出失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _buildSubsetExportCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.list_alt),
+                SizedBox(width: 8),
+                Text('清单导出（CSV / Markdown）', style: TextStyle(fontWeight: FontWeight.w600)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '将物资或物件清单导出为 CSV / Markdown 文件，适合用 Excel、笔记软件等外部工具阅读。'
+              '注意：清单不能导入回 App，恢复数据请使用上方的全量 JSON 备份。',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'supply', label: Text('物资')),
+                      ButtonSegment(value: 'item', label: Text('物件')),
+                    ],
+                    selected: {_exportType},
+                    onSelectionChanged: (s) => setState(() => _exportType = s.first),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(value: false, label: Text('CSV')),
+                      ButtonSegment(value: true, label: Text('MD')),
+                    ],
+                    selected: {_exportAsMarkdown},
+                    onSelectionChanged: (s) => setState(() => _exportAsMarkdown = s.first),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _exportSubset,
+              icon: const Icon(Icons.ios_share),
+              label: const Text('导出清单'),
             ),
           ],
         ),

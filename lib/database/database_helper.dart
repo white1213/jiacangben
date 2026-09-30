@@ -9,7 +9,7 @@ class DatabaseHelper {
 
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
-  static const int dbVersion = 1;
+  static const int dbVersion = 2; // v2：新增 item_category 表 + categoryId 字段
 
   Database? _database;
 
@@ -79,6 +79,22 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // 预留：后续版本的增量迁移在此追加
+    // v1 -> v2：新增 item_category 表；home_supply / stored_item 增加 categoryId（默认 null）。
+    // ALTER TABLE ADD COLUMN 对已有数据无损，老用户数据完整保留。
+    if (oldVersion < 2) {
+      final batch = db.batch();
+      batch.execute('''
+        CREATE TABLE IF NOT EXISTS item_category (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          targetType TEXT NOT NULL,
+          note TEXT
+        )
+      ''');
+      batch.execute('ALTER TABLE home_supply ADD COLUMN categoryId INTEGER');
+      batch.execute('ALTER TABLE stored_item ADD COLUMN categoryId INTEGER');
+      batch.execute('CREATE INDEX IF NOT EXISTS idx_item_category_target ON item_category(targetType)');
+      await batch.commit(noResult: true);
+    }
   }
 }

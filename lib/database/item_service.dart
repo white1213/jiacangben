@@ -71,4 +71,40 @@ class ItemService {
       await txn.delete(_table, where: 'id = ?', whereArgs: [id]);
     });
   }
+
+  /// v1.1 批量操作：批量迁移到目标收纳位置（locationId 传 null = 全部改为未归位），单事务
+  Future<int> batchMove(List<int> ids, int? locationId) async {
+    if (ids.isEmpty) return 0;
+    final db = await _dbHelper.database;
+    return db.transaction<int>((txn) async {
+      var moved = 0;
+      for (final id in ids) {
+        moved += await txn.update(
+          _table,
+          {'locationId': locationId},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+      return moved;
+    });
+  }
+
+  /// v1.1 批量操作：批量删除（连同标签关联，单事务），返回删除数量
+  Future<int> batchDelete(List<int> ids) async {
+    if (ids.isEmpty) return 0;
+    final db = await _dbHelper.database;
+    return db.transaction<int>((txn) async {
+      var deleted = 0;
+      for (final id in ids) {
+        await txn.delete(
+          'tag_relation',
+          where: 'ownerType = ? AND ownerId = ?',
+          whereArgs: [TagRelation.ownerTypeStoredItem, id],
+        );
+        deleted += await txn.delete(_table, where: 'id = ?', whereArgs: [id]);
+      }
+      return deleted;
+    });
+  }
 }

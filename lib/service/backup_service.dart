@@ -33,7 +33,7 @@ class BackupService {
 
   /// 导出为本地 JSON 文件，写入应用文档目录的 backups 子目录
   Future<File> exportToFile() async {
-    final dir = await _backupDir();
+    final dir = await backupDirectory();
     final stamp = _localStamp(DateTime.now());
     final file = File(p.join(dir.path, 'jiacangben_backup_$stamp.json'));
     final json = const JsonEncoder.withIndent('  ').convert(await exportAll());
@@ -43,7 +43,7 @@ class BackupService {
 
   /// 备份目录下的全部 JSON 文件（新->旧）
   Future<List<File>> listBackupFiles() async {
-    final dir = await _backupDir();
+    final dir = await backupDirectory();
     if (!dir.existsSync()) return [];
     final files = dir
         .listSync()
@@ -130,7 +130,8 @@ class BackupService {
     return row.map((k, v) => MapEntry(k.toString(), v));
   }
 
-  Future<Directory> _backupDir() async {
+  /// 应用备份目录（应用文档目录 / backups），公开给子集导出等服务复用
+  Future<Directory> backupDirectory() async {
     final docs = await getApplicationDocumentsDirectory();
     final dir = Directory(p.join(docs.path, kBackupDirName));
     if (!dir.existsSync()) {

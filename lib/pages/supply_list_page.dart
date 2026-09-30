@@ -56,6 +56,7 @@ class MiniTagChip extends StatelessWidget {
 enum _SupplyFilter { all, expiringSoon, expired }
 
 /// 消耗物资列表页
+/// v1.1 新增：多选批量操作（批量标记已开封 / 批量删除）
 class HomeSupplyListPage extends StatefulWidget {
   const HomeSupplyListPage({super.key});
 
@@ -71,6 +72,10 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
   List<HomeSupply> _supplies = const [];
   Map<int, List<Tag>> _tagsByOwner = const {};
   _SupplyFilter _filter = _SupplyFilter.all;
+
+  // v1.1 多选模式
+  bool _selectMode = false;
+  Set<int> _selectedIds = {};
 
   @override
   void initState() {
@@ -101,21 +106,89 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
     }
   }
 
+  void _snack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _openEditor([HomeSupply? supply]) async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => SupplyEditPage(supply: supply)));
     await _reload();
+  }
+
+  void _toggleSelect(int? id) {
+    if (id == null) return;
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+      if (_selectedIds.isEmpty) _selectMode = false;
+    });
+  }
+
+  void _enterSelectMode(int? id) {
+    setState(() {
+      _selectMode = true;
+      if (id != null) _selectedIds.add(id);
+    });
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _selectMode = false;
+      _selectedIds = {};
+    });
+  }
+
+  /// v1.1：批量标记为已开封（开封日期记为今天）
+  Future<void> _batchMarkOpened() async {
+    if (_selectedIds.isEmpty) return;
+    final marked = await _service.batchMarkOpened(_selectedIds.toList());
+    _exitSelectMode();
+    await _reload();
+    if (!mounted) return;
+    _snack(marked > 0 ? '已将 $marked 条物资标记为已开封（开封日期今天）' : '所选物资均已开封，无变更');
+  }
+
+  Future<void> _batchDelete() async {
+    if (_selectedIds.isEmpty) return;
+    final count = _selectedIds.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('批量删除'),
+        content: Text('确定删除选中的 $count 条物资吗？该操作不可撤销。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(foregroundColor: kColorExpired),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final deleted = await _service.batchDelete(_selectedIds.toList());
+    _exitSelectMode();
+    await _reload();
+    if (mounted) _snack('已删除 $deleted 条物资');
   }
 
   @override
   Widget build(BuildContext context) {
     final list = _filtered;
     return Scaffold(
-      appBar: AppBar(title: const Text('消耗物资库')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openEditor(),
-        icon: const Icon(Icons.add),
-        label: const Text('新增物资'),
-      ),
+      appBar: _selectMode ? _buildSelectionAppBar() : AppBar(title: const Text('消耗物资库')),
+      floatingActionButton: _selectMode
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _openEditor(),
+              icon: const Icon(Icons.add),
+              label: const Text('新增物资'),
+            ),
+      bottomNavigationBar: _selectMode ? _buildBatchBar() : null,
       body: Column(
         children: [
           Padding(
@@ -146,12 +219,65 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
     );
   }
 
+  PreferredSizeWidget _buildSelectionAppBar() {
+    return AppBar(
+      leading: IconButton(icon: const Icon(Icons.close), onPressed: _exitSelectMode),
+      title: Text('已选 ${_selectedIds.length} 项'),
+      actions: [
+        TextButton(
+          onPressed: () {
+            final allIds = _filtered.map((s) => s.id).whereType<int>().toSet();
+            setState(() {
+              if (allIds.length == _selectedIds.length && allIds.every(_selectedIds.contains)) {
+                _selectedIds = {};
+              } else {
+                _selectedIds = allIds;
+              }
+            });
+          },
+          child: Text(
+            _filtered.length == _selectedIds.length && _selectedIds.isNotEmpty ? '取消全选' : '全选',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBatchBar() {
+    return BottomAppBar(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // 批量标记为已开封（开封日期记为今天）
+          TextButton.icon(
+            onPressed: _selectedIds.isEmpty ? null : _batchMarkOpened,
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('批量开封'),
+          ),
+          TextButton.icon(
+            onPressed: _selectedIds.isEmpty ? null : _batchDelete,
+            icon: const Icon(Icons.delete_outline, color: kColorExpired),
+            label: const Text('批量删除', style: TextStyle(color: kColorExpired)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCard(HomeSupply supply) {
     final status = ExpiryService.statusOf(supply);
     final tags = _tagsByOwner[supply.id] ?? const <Tag>[];
+    final selected = _selectedIds.contains(supply.id);
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
+      color: selected ? Theme.of(context).colorScheme.secondaryContainer : null,
       child: ListTile(
+        leading: _selectMode
+            ? Icon(
+                selected ? Icons.check_circle : Icons.radio_button_unchecked,
+                color: selected ? Theme.of(context).colorScheme.primary : Colors.grey,
+              )
+            : null,
         title: Wrap(
           spacing: 6,
           runSpacing: 2,
@@ -172,7 +298,14 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
           ),
         ),
         isThreeLine: true,
-        onTap: () => _openEditor(supply),
+        onLongPress: () => _enterSelectMode(supply.id),
+        onTap: () {
+          if (_selectMode) {
+            _toggleSelect(supply.id);
+          } else {
+            _openEditor(supply);
+          }
+        },
       ),
     );
   }

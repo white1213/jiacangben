@@ -2,6 +2,7 @@
 
 import '../model/home_supply.dart';
 import '../model/tag_relation.dart';
+import '../utils/date_utils.dart';
 import 'database_helper.dart';
 import 'tag_service.dart';
 
@@ -64,6 +65,49 @@ class SupplyService {
         whereArgs: [TagRelation.ownerTypeSupply, id],
       );
       await txn.delete(_table, where: 'id = ?', whereArgs: [id]);
+    });
+  }
+
+  /// v1.1 批量操作：批量标记为已开封（开封日期 = 当前 UTC 时间）。
+  /// 已开封的条目跳过；单事务完成，返回实际标记的数量。
+  Future<int> batchMarkOpened(List<int> ids) async {
+    if (ids.isEmpty) return 0;
+    final db = await _dbHelper.database;
+    final now = utcNow().toIso8601String();
+    return db.transaction<int>((txn) async {
+      var marked = 0;
+      for (final id in ids) {
+        final rows = await txn.query(_table, where: 'id = ?', whereArgs: [id], limit: 1);
+        if (rows.isEmpty) continue;
+        final supply = HomeSupply.fromMap(rows.first);
+        if (supply.isOpened) continue;
+        await txn.update(
+          _table,
+          {'isOpened': 1, 'openDate': now},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+        marked++;
+      }
+      return marked;
+    });
+  }
+
+  /// v1.1 批量操作：批量删除（连同标签关联，单事务），返回删除数量
+  Future<int> batchDelete(List<int> ids) async {
+    if (ids.isEmpty) return 0;
+    final db = await _dbHelper.database;
+    return db.transaction<int>((txn) async {
+      var deleted = 0;
+      for (final id in ids) {
+        await txn.delete(
+          'tag_relation',
+          where: 'ownerType = ? AND ownerId = ?',
+          whereArgs: [TagRelation.ownerTypeSupply, id],
+        );
+        deleted += await txn.delete(_table, where: 'id = ?', whereArgs: [id]);
+      }
+      return deleted;
     });
   }
 }

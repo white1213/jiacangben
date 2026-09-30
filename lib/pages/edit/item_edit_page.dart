@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../consts.dart';
+import '../../database/category_service.dart';
 import '../../database/item_service.dart';
 import '../../database/location_service.dart';
 import '../../database/tag_service.dart';
+import '../../model/item_category.dart';
 import '../../model/storage_location.dart';
 import '../../model/stored_item.dart';
 import '../../model/tag.dart';
@@ -34,6 +36,8 @@ class _ItemEditPageState extends State<ItemEditPage> {
   List<StorageLocation> _locations = const [];
   List<Tag> _allTags = const [];
   Set<int> _selectedTagIds = {};
+  List<ItemCategory> _categories = const []; // v1.1：普通物件分类
+  int? _categoryId;
 
   bool get _isEditing => widget.item != null;
 
@@ -45,6 +49,7 @@ class _ItemEditPageState extends State<ItemEditPage> {
     _countCtrl = TextEditingController(text: (item?.count ?? 1).toString());
     _noteCtrl = TextEditingController(text: item?.note ?? '');
     _locationId = item?.locationId ?? widget.presetLocationId;
+    _categoryId = item?.categoryId;
     _load();
   }
 
@@ -59,6 +64,7 @@ class _ItemEditPageState extends State<ItemEditPage> {
   Future<void> _load() async {
     final locations = await _locationService.listAll();
     final tags = await _tagService.listAll();
+    final categories = await CategoryService().listAll(targetType: ItemCategory.targetTypeThing);
     final existing = widget.item;
     final byOwner = existing?.id == null
         ? const <int, List<Tag>>{}
@@ -67,6 +73,7 @@ class _ItemEditPageState extends State<ItemEditPage> {
     setState(() {
       _locations = locations;
       _allTags = tags;
+      _categories = categories;
       _selectedTagIds = (byOwner[existing!.id] ?? const <Tag>[]).map((t) => t.id!).toSet();
       // 防御：关联位置已不存在时回退为未归位
       if (_locationId != null && !locations.any((l) => l.id == _locationId)) {
@@ -107,6 +114,7 @@ class _ItemEditPageState extends State<ItemEditPage> {
       name: name,
       count: count,
       locationId: _locationId,
+      categoryId: _categoryId,
       note: note.isEmpty ? null : note,
     );
     if (_isEditing) {
@@ -170,6 +178,16 @@ class _ItemEditPageState extends State<ItemEditPage> {
             controller: _countCtrl,
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(labelText: '数量 *', hintText: '整数，默认 1'),
+          ),
+          // v1.1：分类下拉（普通物件分类）
+          DropdownButtonFormField<int?>(
+            initialValue: _categoryId,
+            decoration: const InputDecoration(labelText: '分类'),
+            items: [
+              const DropdownMenuItem<int?>(value: null, child: Text('无分类')),
+              for (final c in _categories) DropdownMenuItem<int?>(value: c.id, child: Text(c.name)),
+            ],
+            onChanged: (v) => setState(() => _categoryId = v),
           ),
           DropdownButtonFormField<int?>(
             initialValue: _locationId,
