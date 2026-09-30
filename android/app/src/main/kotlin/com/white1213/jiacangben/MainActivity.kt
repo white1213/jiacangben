@@ -1,4 +1,4 @@
-package com.example.jiacangben
+package com.white1213.jiacangben
 
 import io.flutter.embedding.android.FlutterActivity
 
