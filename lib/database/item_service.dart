@@ -1,0 +1,74 @@
+
+
+import '../model/stored_item.dart';
+import '../model/tag_relation.dart';
+import 'database_helper.dart';
+import 'tag_service.dart';
+
+/// 普通物件数据服务（写入全部走事务）
+class ItemService {
+  static const String _table = 'stored_item';
+
+  final DatabaseHelper _dbHelper = DatabaseHelper.instance;
+
+  Future<List<StoredItem>> listAll() async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(_table, orderBy: 'name ASC');
+    return rows.map(StoredItem.fromMap).toList();
+  }
+
+  Future<List<StoredItem>> listByLocation(int locationId) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(_table, where: 'locationId = ?', whereArgs: [locationId], orderBy: 'name ASC');
+    return rows.map(StoredItem.fromMap).toList();
+  }
+
+  Future<List<StoredItem>> search(String keyword) async {
+    final kw = '%${keyword.trim()}%';
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      _table,
+      where: "name LIKE ? OR IFNULL(note, '') LIKE ?",
+      whereArgs: [kw, kw],
+      orderBy: 'name ASC',
+    );
+    return rows.map(StoredItem.fromMap).toList();
+  }
+
+  Future<int> count() async {
+    final db = await _dbHelper.database;
+    final rows = await db.rawQuery('SELECT COUNT(*) AS c FROM $_table');
+    return rows.first['c'] as int;
+  }
+
+  /// 新增（连同标签关联，单事务）
+  Future<void> insert(StoredItem item, {Set<int> tagIds = const {}}) async {
+    final db = await _dbHelper.database;
+    await db.transaction((txn) async {
+      final id = await txn.insert(_table, item.toMap());
+      await TagService.replaceRelations(txn, TagRelation.ownerTypeStoredItem, id, tagIds);
+    });
+  }
+
+  /// 更新（修改归属位置即在此完成；连同标签关联整体替换，单事务）
+  Future<void> update(StoredItem item, {required Set<int> tagIds}) async {
+    final db = await _dbHelper.database;
+    await db.transaction((txn) async {
+      await txn.update(_table, item.toMap(), where: 'id = ?', whereArgs: [item.id]);
+      await TagService.replaceRelations(txn, TagRelation.ownerTypeStoredItem, item.id!, tagIds);
+    });
+  }
+
+  /// 删除（连同标签关联，单事务）
+  Future<void> delete(int id) async {
+    final db = await _dbHelper.database;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'tag_relation',
+        where: 'ownerType = ? AND ownerId = ?',
+        whereArgs: [TagRelation.ownerTypeStoredItem, id],
+      );
+      await txn.delete(_table, where: 'id = ?', whereArgs: [id]);
+    });
+  }
+}
