@@ -176,7 +176,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
               '保存到应用文档目录的 backups 文件夹，并复制到剪贴板。',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
             ),
-            // v1.2：醒目标注 JSON 备份不含图片
+            // v1.2/v1.3：醒目标注 JSON 备份不含图片
             const SizedBox(height: 6),
             Container(
               padding: const EdgeInsets.all(8),
@@ -185,12 +185,15 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                 borderRadius: BorderRadius.circular(6),
               ),
               child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(Icons.photo_library_outlined, size: 16, color: Color(0xFF8A6D00)),
                   SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      'JSON 备份不包含图片附件！照片文件请手动备份（位于应用外部存储的 attachments 目录）。',
+                      '注意：JSON 备份仅包含文字记录（位置、物件、物资、标签、模板），'
+                      '不包含任何图片附件！换机或卸载重装前，请务必手动复制照片文件夹备份'
+                      '（位于应用外部存储的 attachments 目录），否则图片会丢失。',
                       style: TextStyle(fontSize: 12, color: Color(0xFF8A6D00)),
                     ),
                   ),

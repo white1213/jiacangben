@@ -182,11 +182,98 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
     if (mounted) _snack('已删除 $deleted 件物件');
   }
 
+  /// 条目长按上下文菜单（编辑 / 多选 / 删除）
+  Future<void> _showItemMenu(StoredItem item) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('编辑'),
+              onTap: () => Navigator.pop(ctx, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.checklist),
+              title: const Text('多选'),
+              onTap: () => Navigator.pop(ctx, 'select'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: const Color(0xFFE55555)),
+              title: const Text('删除', style: TextStyle(color: Color(0xFFE55555))),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'edit':
+        await _openEditor(item);
+      case 'select':
+        _enterSelectMode(item.id);
+      case 'delete':
+        await _deleteSingle(item);
+    }
+  }
+
+  /// 单条删除（含关联图片处理确认）
+  Future<void> _deleteSingle(StoredItem item) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除物件'),
+        content: Text('确定删除「${item.name}」吗？该操作不可撤销。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(foregroundColor: const Color(0xFFE55555)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final cleanup = await confirmAttachmentCleanup(
+      context,
+      AttachmentService(),
+      MediaAttachment.ownerTypeStoredItem,
+      [item.id!],
+    );
+    if (cleanup == AttachmentCleanup.cancel) return;
+    if (cleanup != null) {
+      await AttachmentService().purgeForOwners(
+        MediaAttachment.ownerTypeStoredItem,
+        [item.id!],
+        deleteFiles: cleanup == AttachmentCleanup.deleteFiles,
+      );
+    }
+    await _itemService.delete(item.id!);
+    await _reload();
+    if (mounted) _snack('已删除「${item.name}」');
+  }
+
   @override
   Widget build(BuildContext context) {
     final list = _filtered;
     return Scaffold(
-      appBar: _selectMode ? _buildSelectionAppBar() : AppBar(title: Text(widget.appBarTitle ?? '全部物件')),
+      appBar: _selectMode
+          ? _buildSelectionAppBar()
+          : AppBar(
+              title: Text(widget.appBarTitle ?? '全部物件'),
+              actions: [
+                // v1.3：多选批量操作入口（长按菜单之外的标准入口）
+                IconButton(
+                  icon: const Icon(Icons.checklist),
+                  tooltip: '多选',
+                  onPressed: () => _enterSelectMode(null),
+                ),
+              ],
+            ),
       floatingActionButton: _selectMode
           ? null
           : FloatingActionButton.extended(
@@ -301,7 +388,7 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
           ],
         ),
         subtitle: note.isEmpty ? Text('位置：$location') : Text('位置：$location · $note', maxLines: 1, overflow: TextOverflow.ellipsis),
-        onLongPress: () => _enterSelectMode(item.id),
+        onLongPress: () => _showItemMenu(item),
         onTap: () {
           if (_selectMode) {
             _toggleSelect(item.id);

@@ -20,12 +20,13 @@ class ExpiryService {
   }
 
   /// 已过期：失效时间 < 当前时间；
-  /// 临期：失效时间距当前 <= [kExpiringSoonDays] 天
-  static ExpiryStatus statusOf(HomeSupply supply, {DateTime? now}) {
+  /// 临期：失效时间距当前 <= [warnDays] 天（默认取 consts 的 30，可在设置页自定义）
+  static ExpiryStatus statusOf(HomeSupply supply, {DateTime? now, int? warnDays}) {
     final n = (now ?? utcNow());
     final expire = finalExpireDate(supply);
     if (expire.isBefore(n)) return ExpiryStatus.expired;
-    if (!expire.isAfter(n.add(const Duration(days: kExpiringSoonDays)))) {
+    final threshold = warnDays ?? kExpiringSoonDays;
+    if (!expire.isAfter(n.add(Duration(days: threshold)))) {
       return ExpiryStatus.expiringSoon;
     }
     return ExpiryStatus.normal;

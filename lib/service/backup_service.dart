@@ -24,6 +24,7 @@ class BackupService {
     return <String, Object?>{
       'app': kAppName,
       'schemaVersion': 1,
+      'appVersion': kAppVersion,
       'exportedAt': utcNow().toIso8601String(),
       'storageLocation': await db.query('storage_location', orderBy: 'id'),
       'storedItem': await db.query('stored_item', orderBy: 'id'),
@@ -70,6 +71,15 @@ class BackupService {
     }
     if (decoded is! Map) {
       throw const FormatException('JSON 结构错误：根节点必须是对象');
+    }
+    // v1.3：版本标记校验——只接受本应用导出、schema 版本可识别的备份，防止误导入不兼容文件
+    final app = decoded['app'];
+    if (app is! String || app != kAppName) {
+      throw const FormatException('这不是「家藏本」导出的备份文件（缺少应用标识），已拒绝导入');
+    }
+    final schema = decoded['schemaVersion'];
+    if (schema is! num || schema.toInt() < 1 || schema.toInt() > 1) {
+      throw FormatException('备份 schema 版本（$schema）不受当前 App 支持，请先升级 App 或使用对应版本导出的备份');
     }
     const listKeys = ['storageLocation', 'storedItem', 'homeSupply', 'tag', 'tagRelation'];
     for (final key in listKeys) {

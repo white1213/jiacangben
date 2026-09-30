@@ -8,6 +8,7 @@ import '../model/home_supply.dart';
 import '../model/storage_location.dart';
 import '../model/stored_item.dart';
 import '../service/expiry_service.dart';
+import '../service/settings_service.dart';
 import '../utils/date_utils.dart';
 import 'category_manage_page.dart';
 import 'edit/item_edit_page.dart';
@@ -15,6 +16,7 @@ import 'edit/supply_edit_page.dart';
 import 'backup_restore_page.dart';
 import 'item_list_page.dart';
 import 'location_list_page.dart';
+import 'settings_page.dart';
 import 'supply_list_page.dart';
 import 'tag_manage_page.dart';
 import 'template_manage_page.dart';
@@ -42,6 +44,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
   String _query = '';
   List<HomeSupply> _supplyHits = const [];
   List<StoredItem> _itemHits = const [];
+  int _warnDays = kExpiringSoonDays; // 设置页可自定义的临期预警天数
 
   @override
   void initState() {
@@ -50,6 +53,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
   }
 
   Future<void> _reload() async {
+    final warnDays = await SettingsService().getWarnDays();
     final supplies = await _supplyService.listAll();
     final items = await _itemService.listAll();
     final locations = await _locationService.listAll();
@@ -58,6 +62,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
       _supplies = supplies;
       _items = items;
       _locations = locations;
+      _warnDays = warnDays;
       _locationNames = {
         for (final l in locations)
           if (l.id != null) l.id!: l.name,
@@ -71,7 +76,7 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
   List<HomeSupply> _scanWarnings() {
     final now = DateTime.now().toUtc();
     final list = _supplies
-        .where((s) => ExpiryService.statusOf(s, now: now) != ExpiryStatus.normal)
+        .where((s) => ExpiryService.statusOf(s, now: now, warnDays: _warnDays) != ExpiryStatus.normal)
         .toList()
       ..sort((a, b) => ExpiryService.finalExpireDate(a).compareTo(ExpiryService.finalExpireDate(b)));
     return list;
@@ -111,6 +116,12 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
       appBar: AppBar(
         title: const Text(kAppName),
         actions: [
+          // 设置入口（临期预警天数 / 关于）
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '设置',
+            onPressed: () => _open(const SettingsPage()),
+          ),
           IconButton(onPressed: _reload, icon: const Icon(Icons.refresh)),
         ],
       ),

@@ -11,6 +11,7 @@ import '../model/saved_filter.dart';
 import '../model/tag.dart';
 import '../model/tag_relation.dart';
 import '../service/expiry_service.dart';
+import '../service/settings_service.dart';
 import '../utils/date_utils.dart';
 import 'edit/attachment_section.dart';
 import 'edit/supply_edit_page.dart';
@@ -85,6 +86,9 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
   // v1.2 保存筛选条件
   final SavedFilterService _savedFilterService = SavedFilterService();
 
+  // 设置页自定义的临期预警天数
+  int _warnDays = kExpiringSoonDays;
+
   @override
   void initState() {
     super.initState();
@@ -94,11 +98,13 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
   Future<void> _reload() async {
     final supplies = await _service.listAll();
     final tags = await _tagService.tagsByOwner(TagRelation.ownerTypeSupply);
+    final warnDays = await SettingsService().getWarnDays();
     supplies.sort((a, b) => ExpiryService.finalExpireDate(a).compareTo(ExpiryService.finalExpireDate(b)));
     if (!mounted) return;
     setState(() {
       _supplies = supplies;
       _tagsByOwner = tags;
+      _warnDays = warnDays;
       _loading = false;
     });
   }
@@ -108,7 +114,7 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
       case _SupplyFilter.all:
         return _supplies;
       case _SupplyFilter.expiringSoon:
-        return _supplies.where((s) => ExpiryService.statusOf(s) == ExpiryStatus.expiringSoon).toList();
+        return _supplies.where((s) => ExpiryService.statusOf(s, warnDays: _warnDays) == ExpiryStatus.expiringSoon).toList();
       case _SupplyFilter.expired:
         return _supplies.where((s) => ExpiryService.statusOf(s) == ExpiryStatus.expired).toList();
     }
@@ -200,6 +206,81 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
     if (mounted) _snack('已删除 $deleted 条物资');
   }
 
+  /// 条目长按上下文菜单（编辑 / 多选 / 删除）
+  Future<void> _showItemMenu(HomeSupply supply) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('编辑'),
+              onTap: () => Navigator.pop(ctx, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.checklist),
+              title: const Text('多选'),
+              onTap: () => Navigator.pop(ctx, 'select'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: kColorExpired),
+              title: const Text('删除', style: TextStyle(color: kColorExpired)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'edit':
+        await _openEditor(supply);
+      case 'select':
+        _enterSelectMode(supply.id);
+      case 'delete':
+        await _deleteSingle(supply);
+    }
+  }
+
+  /// 单条删除（含关联图片处理确认）
+  Future<void> _deleteSingle(HomeSupply supply) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除物资'),
+        content: Text('确定删除「${supply.name}」吗？该操作不可撤销。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(foregroundColor: kColorExpired),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final cleanup = await confirmAttachmentCleanup(
+      context,
+      AttachmentService(),
+      MediaAttachment.ownerTypeSupply,
+      [supply.id!],
+    );
+    if (cleanup == AttachmentCleanup.cancel) return;
+    if (cleanup != null) {
+      await AttachmentService().purgeForOwners(
+        MediaAttachment.ownerTypeSupply,
+        [supply.id!],
+        deleteFiles: cleanup == AttachmentCleanup.deleteFiles,
+      );
+    }
+    await _service.delete(supply.id!);
+    await _reload();
+    if (mounted) _snack('已删除「${supply.name}」');
+  }
+
   /// v1.2：保存当前筛选条件（状态筛选，命名保存后可一键加载）
   Future<void> _manageSavedFilters() async {
     final filters = await _savedFilterService.listAll(SavedFilter.targetTypeSupply);
@@ -251,12 +332,36 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
                             leading: const Icon(Icons.filter_list, size: 20),
                             title: Text(f.name),
                             subtitle: Text('筛选：${_statusLabel(f.filterJson['status']?.toString())}'),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete_outline, size: 20),
-                              onPressed: () async {
-                                await _savedFilterService.delete(f.id!);
-                                setDialogState(() => filters.remove(f));
-                              },
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // v1.3：筛选方案重命名
+                                IconButton(
+                                  icon: const Icon(Icons.edit_outlined, size: 20),
+                                  onPressed: () async {
+                                    final newName = await _promptText('重命名方案', f.name);
+                                    if (newName == null || newName.trim().isEmpty || newName.trim() == f.name) return;
+                                    await _savedFilterService.update(
+                                      SavedFilter(
+                                        id: f.id,
+                                        name: newName.trim(),
+                                        targetType: f.targetType,
+                                        filterJson: f.filterJson,
+                                      ),
+                                    );
+                                    setDialogState(() {
+                                      f.name = newName.trim();
+                                    });
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 20),
+                                  onPressed: () async {
+                                    await _savedFilterService.delete(f.id!);
+                                    setDialogState(() => filters.remove(f));
+                                  },
+                                ),
+                              ],
                             ),
                             onTap: () {
                               final status = f.filterJson['status']?.toString();
@@ -290,6 +395,25 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
     };
   }
 
+  /// 通用单行文本输入弹窗（重命名等）
+  Future<String?> _promptText(String title, String initial) {
+    final controller = TextEditingController(text: initial);
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text('确定')),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final list = _filtered;
@@ -299,6 +423,12 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
           : AppBar(
               title: const Text('消耗物资库'),
               actions: [
+                // v1.3：多选批量操作入口（长按菜单之外的标准入口）
+                IconButton(
+                  icon: const Icon(Icons.checklist),
+                  tooltip: '多选',
+                  onPressed: () => _enterSelectMode(null),
+                ),
                 // v1.2：保存筛选方案
                 IconButton(
                   icon: const Icon(Icons.bookmark_border),
@@ -424,7 +554,7 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
           ),
         ),
         isThreeLine: true,
-        onLongPress: () => _enterSelectMode(supply.id),
+        onLongPress: () => _showItemMenu(supply),
         onTap: () {
           if (_selectMode) {
             _toggleSelect(supply.id);

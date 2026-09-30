@@ -13,6 +13,7 @@ import '../../model/media_attachment.dart';
 import '../../model/tag.dart';
 import '../../model/tag_relation.dart';
 import '../../service/expiry_service.dart';
+import '../../service/settings_service.dart';
 import '../../utils/date_utils.dart';
 import 'attachment_section.dart';
 import 'tag_field.dart';
@@ -47,6 +48,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
   int? _categoryId;
   List<EntryTemplate> _templates = const []; // v1.2：录入模板（仅新增时可选）
   EntryTemplate? _selectedTemplate;
+  int _warnDays = kExpiringSoonDays; // 设置页自定义的临期预警天数（预览用）
 
   bool get _isEditing => widget.supply != null;
 
@@ -77,6 +79,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     final tags = await _tagService.listAll();
     final categories = await CategoryService().listAll(targetType: ItemCategory.targetTypeSupply);
     final templates = await TemplateService().listAll(targetType: EntryTemplate.targetTypeSupply);
+    final warnDays = await SettingsService().getWarnDays();
     final existing = widget.supply;
     final byOwner = existing?.id == null
         ? const <int, List<Tag>>{}
@@ -86,6 +89,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       _allTags = tags;
       _categories = categories;
       _templates = templates;
+      _warnDays = warnDays;
       _selectedTagIds = (byOwner[existing!.id] ?? const <Tag>[]).map((t) => t.id!).toSet();
     });
   }
@@ -139,6 +143,10 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     int? afterOpenDays;
     if (_isOpened) {
       if (_openDate == null) return _snack('已开封，请选择开封日期');
+      // v1.3 校验：开封日期晚于外包装到期日期属于非法数据
+      if (_openDate!.isAfter(_expireDate!)) {
+        return _snack('开封日期不能晚于外包装到期日期，请检查填写');
+      }
       afterOpenDays = _parsedAfterOpenDays();
       if (_afterOpenDaysCtrl.text.trim().isNotEmpty && (afterOpenDays == null || afterOpenDays < 0)) {
         return _snack('开封后使用天数必须是大于等于 0 的整数');
@@ -219,7 +227,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       openDate: _openDate,
       afterOpenDays: _parsedAfterOpenDays(),
     );
-    final status = ExpiryService.statusOf(tmp);
+    final status = ExpiryService.statusOf(tmp, warnDays: _warnDays);
     final color = switch (status) {
       ExpiryStatus.expired => kColorExpired,
       ExpiryStatus.expiringSoon => const Color(0xFF8A6D00),

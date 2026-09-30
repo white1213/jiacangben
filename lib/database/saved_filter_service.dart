@@ -19,6 +19,13 @@ class SavedFilterService {
     return db.transaction((txn) => txn.insert('saved_filter', filter.toMap()));
   }
 
+  Future<void> update(SavedFilter filter) async {
+    final db = await DatabaseHelper.instance.database;
+    await db.transaction(
+      (txn) => txn.update('saved_filter', filter.toMap(), where: 'id = ?', whereArgs: [filter.id]),
+    );
+  }
+
   Future<void> delete(int id) async {
     final db = await DatabaseHelper.instance.database;
     await db.transaction((txn) => txn.delete('saved_filter', where: 'id = ?', whereArgs: [id]));
