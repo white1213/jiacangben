@@ -7,7 +7,9 @@ import 'package:path_provider/path_provider.dart';
 
 import '../consts.dart';
 import '../database/database_helper.dart';
+import '../model/entry_template.dart';
 import '../model/home_supply.dart';
+import '../model/saved_filter.dart';
 import '../model/storage_location.dart';
 import '../model/stored_item.dart';
 import '../model/tag.dart';
@@ -28,6 +30,9 @@ class BackupService {
       'homeSupply': await db.query('home_supply', orderBy: 'id'),
       'tag': await db.query('tag', orderBy: 'id'),
       'tagRelation': await db.query('tag_relation', orderBy: 'id'),
+      // v1.2：录入模板与保存筛选为纯数据，纳入备份；图片附件（media_attachment）不进 JSON 备份
+      'entryTemplate': await db.query('entry_template', orderBy: 'id'),
+      'savedFilter': await db.query('saved_filter', orderBy: 'id'),
     };
   }
 
@@ -88,13 +93,20 @@ class BackupService {
       for (final row in decoded['tagRelation'] as List) {
         TagRelation.fromMap(_asRowMap(row, 'tagRelation'));
       }
+      // v1.2 新增表：旧版（v1.1 及之前）备份没有这两个字段，缺省视为空
+      for (final row in (decoded['entryTemplate'] as List?) ?? const []) {
+        EntryTemplate.fromMap(_asRowMap(row, 'entryTemplate'));
+      }
+      for (final row in (decoded['savedFilter'] as List?) ?? const []) {
+        SavedFilter.fromMap(_asRowMap(row, 'savedFilter'));
+      }
     } catch (e) {
       throw FormatException('数据校验失败：$e');
     }
     return decoded.map((k, v) => MapEntry(k.toString(), v));
   }
 
-  /// 全量覆盖导入（单事务）：先清空 5 张表，再按导出顺序原样写回，
+  /// 全量覆盖导入（单事务）：先清空相关表，再按导出顺序原样写回，
   /// 保留原始 id，位置归属 / 标签关联不断裂；任一步失败整体回滚。
   /// 返回写入的总记录数。
   Future<int> importAll(String jsonText) async {
@@ -102,7 +114,15 @@ class BackupService {
     final db = await DatabaseHelper.instance.database;
     var total = 0;
     await db.transaction((txn) async {
-      for (final table in ['tag_relation', 'home_supply', 'stored_item', 'storage_location', 'tag']) {
+      for (final table in [
+        'tag_relation',
+        'home_supply',
+        'stored_item',
+        'storage_location',
+        'tag',
+        'entry_template',
+        'saved_filter',
+      ]) {
         await txn.delete(table);
       }
       total += await _bulkInsert(txn, 'storage_location', data['storageLocation'] as List);
@@ -110,6 +130,8 @@ class BackupService {
       total += await _bulkInsert(txn, 'home_supply', data['homeSupply'] as List);
       total += await _bulkInsert(txn, 'tag', data['tag'] as List);
       total += await _bulkInsert(txn, 'tag_relation', data['tagRelation'] as List);
+      total += await _bulkInsert(txn, 'entry_template', (data['entryTemplate'] as List?) ?? const []);
+      total += await _bulkInsert(txn, 'saved_filter', (data['savedFilter'] as List?) ?? const []);
     });
     return total;
   }

@@ -17,6 +17,7 @@ import 'item_list_page.dart';
 import 'location_list_page.dart';
 import 'supply_list_page.dart';
 import 'tag_manage_page.dart';
+import 'template_manage_page.dart';
 
 /// 首页仪表盘（启动页）
 class HomeDashboardPage extends StatefulWidget {
@@ -262,6 +263,8 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
         // v1.1 新增入口
         entry(Icons.category, '分类管理', () => _open(const CategoryManagePage())),
         entry(Icons.label_outline, '标签管理', () => _open(const TagManagePage())),
+        // v1.2 新增入口
+        entry(Icons.playlist_add_check, '录入模板', () => _open(const TemplateManagePage())),
       ],
     );
   }

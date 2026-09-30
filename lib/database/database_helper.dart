@@ -9,7 +9,7 @@ class DatabaseHelper {
 
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
-  static const int dbVersion = 2; // v2：新增 item_category 表 + categoryId 字段
+  static const int dbVersion = 3; // v3：media_attachment / entry_template / saved_filter 三表
 
   Database? _database;
 
@@ -94,6 +94,37 @@ class DatabaseHelper {
       batch.execute('ALTER TABLE home_supply ADD COLUMN categoryId INTEGER');
       batch.execute('ALTER TABLE stored_item ADD COLUMN categoryId INTEGER');
       batch.execute('CREATE INDEX IF NOT EXISTS idx_item_category_target ON item_category(targetType)');
+      await batch.commit(noResult: true);
+    }
+    // v2 -> v3：新增媒体附件、录入模板、保存筛选条件三张表
+    if (oldVersion < 3) {
+      final batch = db.batch();
+      batch.execute('''
+        CREATE TABLE IF NOT EXISTS media_attachment (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ownerType TEXT NOT NULL,
+          ownerId INTEGER NOT NULL,
+          localFilePath TEXT NOT NULL,
+          createTime TEXT NOT NULL
+        )
+      ''');
+      batch.execute('''
+        CREATE TABLE IF NOT EXISTS entry_template (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          targetType TEXT NOT NULL,
+          presetFields TEXT
+        )
+      ''');
+      batch.execute('''
+        CREATE TABLE IF NOT EXISTS saved_filter (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          targetType TEXT NOT NULL,
+          filterJson TEXT
+        )
+      ''');
+      batch.execute('CREATE INDEX IF NOT EXISTS idx_media_attachment_owner ON media_attachment(ownerType, ownerId)');
       await batch.commit(noResult: true);
     }
   }

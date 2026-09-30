@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../database/attachment_service.dart';
 import '../database/item_service.dart';
 import '../database/location_service.dart';
 import '../database/tag_service.dart';
+import '../model/media_attachment.dart';
 import '../model/stored_item.dart';
 import '../model/tag.dart';
 import '../model/tag_relation.dart';
+import 'edit/attachment_section.dart';
 import 'edit/item_edit_page.dart';
 import 'supply_list_page.dart' show MiniTagChip;
 
@@ -157,7 +160,23 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
       ),
     );
     if (ok != true) return;
-    final deleted = await _itemService.batchDelete(_selectedIds.toList());
+    final ids = _selectedIds.toList();
+    // v1.2：有关联图片时询问文件处理方式
+    final cleanup = await confirmAttachmentCleanup(
+      context,
+      AttachmentService(),
+      MediaAttachment.ownerTypeStoredItem,
+      ids,
+    );
+    if (cleanup == AttachmentCleanup.cancel) return;
+    if (cleanup != null) {
+      await AttachmentService().purgeForOwners(
+        MediaAttachment.ownerTypeStoredItem,
+        ids,
+        deleteFiles: cleanup == AttachmentCleanup.deleteFiles,
+      );
+    }
+    final deleted = await _itemService.batchDelete(ids);
     _exitSelectMode();
     await _reload();
     if (mounted) _snack('已删除 $deleted 件物件');

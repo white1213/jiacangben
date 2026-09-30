@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../consts.dart';
+import '../database/attachment_service.dart';
+import '../database/saved_filter_service.dart';
 import '../database/supply_service.dart';
 import '../database/tag_service.dart';
 import '../model/home_supply.dart';
+import '../model/media_attachment.dart';
+import '../model/saved_filter.dart';
 import '../model/tag.dart';
 import '../model/tag_relation.dart';
 import '../service/expiry_service.dart';
 import '../utils/date_utils.dart';
+import 'edit/attachment_section.dart';
 import 'edit/supply_edit_page.dart';
 
 /// 到期状态标签（颜色规范见 consts.dart）
@@ -76,6 +81,9 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
   // v1.1 多选模式
   bool _selectMode = false;
   Set<int> _selectedIds = {};
+
+  // v1.2 保存筛选条件
+  final SavedFilterService _savedFilterService = SavedFilterService();
 
   @override
   void initState() {
@@ -170,17 +178,135 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
       ),
     );
     if (ok != true) return;
-    final deleted = await _service.batchDelete(_selectedIds.toList());
+    final ids = _selectedIds.toList();
+    // v1.2：有关联图片时询问文件处理方式
+    final cleanup = await confirmAttachmentCleanup(
+      context,
+      AttachmentService(),
+      MediaAttachment.ownerTypeSupply,
+      ids,
+    );
+    if (cleanup == AttachmentCleanup.cancel) return;
+    if (cleanup != null) {
+      await AttachmentService().purgeForOwners(
+        MediaAttachment.ownerTypeSupply,
+        ids,
+        deleteFiles: cleanup == AttachmentCleanup.deleteFiles,
+      );
+    }
+    final deleted = await _service.batchDelete(ids);
     _exitSelectMode();
     await _reload();
     if (mounted) _snack('已删除 $deleted 条物资');
+  }
+
+  /// v1.2：保存当前筛选条件（状态筛选，命名保存后可一键加载）
+  Future<void> _manageSavedFilters() async {
+    final filters = await _savedFilterService.listAll(SavedFilter.targetTypeSupply);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          Future<void> saveCurrent() async {
+            final controller = TextEditingController();
+            final name = await showDialog<String>(
+              context: ctx,
+              builder: (ctx) => AlertDialog(
+                title: const Text('保存当前筛选'),
+                content: TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: const InputDecoration(hintText: '方案名称，如：临期关注'),
+                ),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+                  FilledButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text('保存')),
+                ],
+              ),
+            );
+            if (name == null || name.trim().isEmpty) return;
+            final saved = SavedFilter(
+              name: name.trim(),
+              targetType: SavedFilter.targetTypeSupply,
+              filterJson: {'status': _filter.name},
+            );
+            await _savedFilterService.insert(saved);
+            setDialogState(() => filters.add(saved));
+          }
+
+          return AlertDialog(
+            title: const Text('筛选方案'),
+            content: SizedBox(
+              width: 280,
+              child: filters.isEmpty
+                  ? const Text('暂无保存的筛选方案', style: TextStyle(color: Colors.grey))
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final f in filters)
+                          ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.filter_list, size: 20),
+                            title: Text(f.name),
+                            subtitle: Text('筛选：${_statusLabel(f.filterJson['status']?.toString())}'),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline, size: 20),
+                              onPressed: () async {
+                                await _savedFilterService.delete(f.id!);
+                                setDialogState(() => filters.remove(f));
+                              },
+                            ),
+                            onTap: () {
+                              final status = f.filterJson['status']?.toString();
+                              setState(() {
+                                _filter = _SupplyFilter.values.firstWhere(
+                                  (v) => v.name == status,
+                                  orElse: () => _SupplyFilter.all,
+                                );
+                              });
+                              Navigator.pop(ctx);
+                            },
+                          ),
+                      ],
+                    ),
+            ),
+            actions: [
+              TextButton(onPressed: saveCurrent, child: const Text('保存当前筛选')),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String _statusLabel(String? status) {
+    return switch (status) {
+      'expiringSoon' => '临期',
+      'expired' => '已过期',
+      _ => '全部',
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     final list = _filtered;
     return Scaffold(
-      appBar: _selectMode ? _buildSelectionAppBar() : AppBar(title: const Text('消耗物资库')),
+      appBar: _selectMode
+          ? _buildSelectionAppBar()
+          : AppBar(
+              title: const Text('消耗物资库'),
+              actions: [
+                // v1.2：保存筛选方案
+                IconButton(
+                  icon: const Icon(Icons.bookmark_border),
+                  tooltip: '筛选方案',
+                  onPressed: _manageSavedFilters,
+                ),
+              ],
+            ),
       floatingActionButton: _selectMode
           ? null
           : FloatingActionButton.extended(

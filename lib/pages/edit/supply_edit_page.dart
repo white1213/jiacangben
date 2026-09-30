@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../../consts.dart';
+import '../../database/attachment_service.dart';
 import '../../database/category_service.dart';
 import '../../database/supply_service.dart';
 import '../../database/tag_service.dart';
+import '../../database/template_service.dart';
+import '../../model/entry_template.dart';
 import '../../model/home_supply.dart';
 import '../../model/item_category.dart';
+import '../../model/media_attachment.dart';
 import '../../model/tag.dart';
 import '../../model/tag_relation.dart';
 import '../../service/expiry_service.dart';
 import '../../utils/date_utils.dart';
+import 'attachment_section.dart';
 import 'tag_field.dart';
 
 /// 新增 / 编辑消耗物资
@@ -40,6 +45,8 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
   Set<int> _selectedTagIds = {};
   List<ItemCategory> _categories = const []; // v1.1：消耗物资分类
   int? _categoryId;
+  List<EntryTemplate> _templates = const []; // v1.2：录入模板（仅新增时可选）
+  EntryTemplate? _selectedTemplate;
 
   bool get _isEditing => widget.supply != null;
 
@@ -69,6 +76,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
   Future<void> _loadTags() async {
     final tags = await _tagService.listAll();
     final categories = await CategoryService().listAll(targetType: ItemCategory.targetTypeSupply);
+    final templates = await TemplateService().listAll(targetType: EntryTemplate.targetTypeSupply);
     final existing = widget.supply;
     final byOwner = existing?.id == null
         ? const <int, List<Tag>>{}
@@ -77,6 +85,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     setState(() {
       _allTags = tags;
       _categories = categories;
+      _templates = templates;
       _selectedTagIds = (byOwner[existing!.id] ?? const <Tag>[]).map((t) => t.id!).toSet();
     });
   }
@@ -105,6 +114,21 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     final text = _afterOpenDaysCtrl.text.trim();
     if (text.isEmpty) return null;
     return int.tryParse(text);
+  }
+
+  /// v1.2：应用录入模板预填表单（用户可继续手动修改）
+  void _applyTemplate(EntryTemplate? template) {
+    setState(() {
+      _selectedTemplate = template;
+      if (template == null) return;
+      final fields = template.presetFields;
+      final name = fields['name'];
+      if (name is String && name.isNotEmpty) _nameCtrl.text = name;
+      final days = fields['afterOpenDays'];
+      if (days is num) _afterOpenDaysCtrl.text = days.toInt().toString();
+      final note = fields['note'];
+      if (note is String && note.isNotEmpty) _noteCtrl.text = note;
+    });
   }
 
   Future<void> _save() async {
@@ -159,6 +183,21 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       ),
     );
     if (ok != true) return;
+    // v1.2：有关联图片时询问文件处理方式
+    final cleanup = await confirmAttachmentCleanup(
+      context,
+      AttachmentService(),
+      MediaAttachment.ownerTypeSupply,
+      [id],
+    );
+    if (cleanup == AttachmentCleanup.cancel) return;
+    if (cleanup != null) {
+      await AttachmentService().purgeForOwners(
+        MediaAttachment.ownerTypeSupply,
+        [id],
+        deleteFiles: cleanup == AttachmentCleanup.deleteFiles,
+      );
+    }
     await _service.delete(id);
     if (mounted) Navigator.of(context).pop();
   }
@@ -212,6 +251,20 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
         children: [
+          // v1.2：新增时可选录入模板自动预填
+          if (!_isEditing && _templates.isNotEmpty)
+            DropdownButtonFormField<EntryTemplate?>(
+              initialValue: _selectedTemplate,
+              decoration: const InputDecoration(
+                labelText: '使用录入模板',
+                hintText: '选择后自动预填，可再修改',
+              ),
+              items: [
+                const DropdownMenuItem<EntryTemplate?>(value: null, child: Text('不使用模板')),
+                for (final t in _templates) DropdownMenuItem<EntryTemplate?>(value: t, child: Text(t.name)),
+              ],
+              onChanged: _applyTemplate,
+            ),
           TextFormField(
             controller: _nameCtrl,
             decoration: const InputDecoration(labelText: '名称 *', hintText: '如：牛奶、洗面奶'),
@@ -268,6 +321,18 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
             minLines: 2,
             maxLines: 4,
           ),
+          const SizedBox(height: 16),
+          // v1.2：图片附件（新增记录需先保存拿到 id）
+          if (_isEditing)
+            AttachmentSection(
+              ownerType: MediaAttachment.ownerTypeSupply,
+              ownerId: widget.supply!.id!,
+            )
+          else
+            Text(
+              '提示：保存后可返回编辑页添加图片附件',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
         ],
       ),
     );

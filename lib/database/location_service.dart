@@ -49,6 +49,18 @@ class LocationService {
     return rows.first['c'] as int;
   }
 
+  /// v1.2：该位置下全部物件 id（删除位置时用于级联清理附件）
+  Future<List<int>> ownedItemIds(int locationId) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'stored_item',
+      columns: ['id'],
+      where: 'locationId = ?',
+      whereArgs: [locationId],
+    );
+    return rows.map((row) => row['id'] as int).toList();
+  }
+
   /// 删除收纳位置（禁止静默级联删除，必须由调用方显式选择处理方式）：
   /// - [alsoDeleteItems] = false：位置下所有物件 locationId 置空（物件保留，改为未归位）
   /// - [alsoDeleteItems] = true：连同位置下全部物件及其标签关联一并删除

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../database/location_service.dart';
+import '../../model/media_attachment.dart';
 import '../../model/storage_location.dart';
+import 'attachment_section.dart';
 
 /// 新增 / 编辑收纳位置（删除操作统一在列表页处理）
 class LocationEditPage extends StatefulWidget {
@@ -80,6 +82,18 @@ class _LocationEditPageState extends State<LocationEditPage> {
             minLines: 2,
             maxLines: 4,
           ),
+          const SizedBox(height: 16),
+          // v1.2：位置照片（新增记录需先保存拿到 id）
+          if (_isEditing)
+            AttachmentSection(
+              ownerType: MediaAttachment.ownerTypeLocation,
+              ownerId: widget.location!.id!,
+            )
+          else
+            Text(
+              '提示：保存后可返回编辑页添加位置照片',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
         ],
       ),
     );

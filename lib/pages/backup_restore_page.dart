@@ -172,9 +172,30 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
             ),
             const SizedBox(height: 6),
             Text(
-              '将全部台账数据（收纳位置、物件、物资、标签）导出为 JSON 备份文件，'
+              '将全部台账数据（收纳位置、物件、物资、标签、模板）导出为 JSON 备份文件，'
               '保存到应用文档目录的 backups 文件夹，并复制到剪贴板。',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+            // v1.2：醒目标注 JSON 备份不含图片
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9D56E).withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.photo_library_outlined, size: 16, color: Color(0xFF8A6D00)),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'JSON 备份不包含图片附件！照片文件请手动备份（位于应用外部存储的 attachments 目录）。',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF8A6D00)),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 10),
             FilledButton.icon(
@@ -213,14 +234,44 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
       }
       await Clipboard.setData(ClipboardData(text: clipboardText));
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('导出成功'),
-          content: Text('清单文件：\n${file.path}\n\n内容已复制到剪贴板。清单仅供外部阅读，不能导入回 App。'),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('知道了'))],
-        ),
-      );
+      if (isMd) {
+        // v1.2：Markdown 清单支持 App 内预览与复制
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Markdown 清单预览'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  clipboardText,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: clipboardText));
+                  _snack('已复制全文');
+                },
+                icon: const Icon(Icons.copy, size: 16),
+                label: const Text('复制'),
+              ),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
+            ],
+          ),
+        );
+      } else {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('导出成功'),
+            content: Text('清单文件：\n${file.path}\n\n内容已复制到剪贴板。清单仅供外部阅读，不能导入回 App。'),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('知道了'))],
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) _snack('导出失败：$e');
     } finally {

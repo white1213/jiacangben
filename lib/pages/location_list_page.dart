@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../consts.dart';
+import '../database/attachment_service.dart';
 import '../database/location_service.dart';
+import '../model/media_attachment.dart';
 import '../model/storage_location.dart';
+import 'edit/attachment_section.dart';
 import 'edit/location_edit_page.dart';
 import 'item_list_page.dart';
 
@@ -85,6 +88,42 @@ class _StorageLocationListPageState extends State<StorageLocationListPage> {
       ),
     );
     if (choice == null || choice == 0 || !mounted) return;
+    // v1.2：删除位置前处理关联图片（位置自身 + 联同删除时的下属物件）
+    final deleteItems = choice == 2;
+    final affectedItemIds = deleteItems
+        ? (await _service.ownedItemIds(location.id!)).cast<int>()
+        : const <int>[];
+    final locationCleanup = await confirmAttachmentCleanup(
+      context,
+      AttachmentService(),
+      MediaAttachment.ownerTypeLocation,
+      [location.id!],
+    );
+    if (locationCleanup == AttachmentCleanup.cancel) return;
+    AttachmentCleanup? itemCleanup;
+    if (deleteItems && affectedItemIds.isNotEmpty) {
+      itemCleanup = await confirmAttachmentCleanup(
+        context,
+        AttachmentService(),
+        MediaAttachment.ownerTypeStoredItem,
+        affectedItemIds,
+      );
+      if (itemCleanup == AttachmentCleanup.cancel) return;
+    }
+    if (locationCleanup != null) {
+      await AttachmentService().purgeForOwners(
+        MediaAttachment.ownerTypeLocation,
+        [location.id!],
+        deleteFiles: locationCleanup == AttachmentCleanup.deleteFiles,
+      );
+    }
+    if (itemCleanup != null) {
+      await AttachmentService().purgeForOwners(
+        MediaAttachment.ownerTypeStoredItem,
+        affectedItemIds,
+        deleteFiles: itemCleanup == AttachmentCleanup.deleteFiles,
+      );
+    }
     await _service.delete(location.id!, alsoDeleteItems: choice == 2);
     await _reload();
   }
