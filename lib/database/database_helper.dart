@@ -29,6 +29,7 @@ class DatabaseHelper {
   }
 
   Future<void> _onCreate(Database db, int version) async {
+    // 全新安装：直接按当前版本（v3）的完整结构建表，与 onUpgrade 增量迁移的结果保持一致
     final batch = db.batch();
     batch.execute('''
       CREATE TABLE storage_location (
@@ -43,6 +44,7 @@ class DatabaseHelper {
         name TEXT NOT NULL,
         count INTEGER NOT NULL DEFAULT 1,
         locationId INTEGER,
+        categoryId INTEGER,
         note TEXT
       )
     ''');
@@ -55,6 +57,7 @@ class DatabaseHelper {
         isOpened INTEGER NOT NULL DEFAULT 0,
         openDate TEXT,
         afterOpenDays INTEGER,
+        categoryId INTEGER,
         note TEXT
       )
     ''');
@@ -72,9 +75,44 @@ class DatabaseHelper {
         tagId INTEGER NOT NULL
       )
     ''');
+    batch.execute('''
+      CREATE TABLE item_category (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        targetType TEXT NOT NULL,
+        note TEXT
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE media_attachment (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ownerType TEXT NOT NULL,
+        ownerId INTEGER NOT NULL,
+        localFilePath TEXT NOT NULL,
+        createTime TEXT NOT NULL
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE entry_template (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        targetType TEXT NOT NULL,
+        presetFields TEXT
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE saved_filter (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        targetType TEXT NOT NULL,
+        filterJson TEXT
+      )
+    ''');
     batch.execute('CREATE INDEX idx_stored_item_location ON stored_item(locationId)');
     batch.execute('CREATE INDEX idx_tag_relation_owner ON tag_relation(ownerType, ownerId)');
     batch.execute('CREATE INDEX idx_tag_relation_tag ON tag_relation(tagId)');
+    batch.execute('CREATE INDEX idx_item_category_target ON item_category(targetType)');
+    batch.execute('CREATE INDEX idx_media_attachment_owner ON media_attachment(ownerType, ownerId)');
     await batch.commit(noResult: true);
   }
 

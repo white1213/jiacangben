@@ -141,10 +141,16 @@ class _ItemEditPageState extends State<ItemEditPage> {
       categoryId: _categoryId,
       note: note.isEmpty ? null : note,
     );
-    if (_isEditing) {
-      await _itemService.update(item, tagIds: _selectedTagIds);
-    } else {
-      await _itemService.insert(item, tagIds: _selectedTagIds);
+    try {
+      if (_isEditing) {
+        await _itemService.update(item, tagIds: _selectedTagIds);
+      } else {
+        await _itemService.insert(item, tagIds: _selectedTagIds);
+      }
+    } catch (e) {
+      // 写库失败时给出可见提示，避免“点了没反应”
+      if (mounted) _snack('保存失败：$e');
+      return;
     }
     if (mounted) Navigator.of(context).pop();
   }

@@ -156,10 +156,16 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       categoryId: _categoryId,
       note: note.isEmpty ? null : note,
     );
-    if (_isEditing) {
-      await _service.update(supply, tagIds: _selectedTagIds);
-    } else {
-      await _service.insert(supply, tagIds: _selectedTagIds);
+    try {
+      if (_isEditing) {
+        await _service.update(supply, tagIds: _selectedTagIds);
+      } else {
+        await _service.insert(supply, tagIds: _selectedTagIds);
+      }
+    } catch (e) {
+      // 写库失败时给出可见提示，避免“点了没反应”
+      if (mounted) _snack('保存失败：$e');
+      return;
     }
     if (mounted) Navigator.of(context).pop();
   }
