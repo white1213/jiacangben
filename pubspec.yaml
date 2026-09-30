@@ -1,7 +1,7 @@
 name: jiacangben
 description: 家藏本 —— 单机本地家庭台账（消耗物资保质期 + 收纳物件管理）
 publish_to: 'none'
-version: 1.2.1+4
+version: 1.2.2+5
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

@@ -20,12 +20,47 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     final dir = await getDatabasesPath();
-    return openDatabase(
+    final db = await openDatabase(
       p.join(dir, kDbName),
       version: dbVersion,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+    // 自愈式 schema 校验：修复由历史缺陷版本（如 v1.2.0 的 onCreate 缺列）初始化的库。
+    // 此时 DB 版本号已是最新，onUpgrade 不会再触发，只能在此幂等补齐。
+    await _ensureSchema(db);
+    return db;
+  }
+
+  /// 幂等补齐缺失的表与列（每次打开执行一次，正常库无副作用）
+  Future<void> _ensureSchema(Database db) async {
+    // 缺失的表：IF NOT EXISTS 幂等
+    await db.execute('CREATE TABLE IF NOT EXISTS item_category ('
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, targetType TEXT NOT NULL, note TEXT)');
+    await db.execute('CREATE TABLE IF NOT EXISTS media_attachment ('
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, ownerType TEXT NOT NULL, ownerId INTEGER NOT NULL, '
+        'localFilePath TEXT NOT NULL, createTime TEXT NOT NULL)');
+    await db.execute('CREATE TABLE IF NOT EXISTS entry_template ('
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, targetType TEXT NOT NULL, presetFields TEXT)');
+    await db.execute('CREATE TABLE IF NOT EXISTS saved_filter ('
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, targetType TEXT NOT NULL, filterJson TEXT)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_item_category_target ON item_category(targetType)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_media_attachment_owner ON media_attachment(ownerType, ownerId)');
+    // 缺失的列：ALTER 失败（列已存在）则忽略
+    await _addColumnIfMissing(db, 'home_supply', 'categoryId', 'INTEGER');
+    await _addColumnIfMissing(db, 'stored_item', 'categoryId', 'INTEGER');
+  }
+
+  Future<void> _addColumnIfMissing(Database db, String table, String column, String type) async {
+    try {
+      final rows = await db.rawQuery('PRAGMA table_info($table)');
+      final exists = rows.any((row) => row['name'] == column);
+      if (!exists) {
+        await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
+      }
+    } catch (_) {
+      // 校验失败不阻断打开（例如表尚不存在，onCreate/onUpgrade 会处理）
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
