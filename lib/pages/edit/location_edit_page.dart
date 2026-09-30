@@ -51,10 +51,17 @@ class _LocationEditPageState extends State<LocationEditPage> {
       name: name,
       description: description.isEmpty ? null : description,
     );
-    if (_isEditing) {
-      await _service.update(location);
-    } else {
-      await _service.insert(location);
+    try {
+      if (_isEditing) {
+        await _service.update(location);
+      } else {
+        await _service.insert(location);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败：$e')));
+      }
+      return;
     }
     if (mounted) Navigator.of(context).pop();
   }

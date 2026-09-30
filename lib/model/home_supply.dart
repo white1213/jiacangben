@@ -1,4 +1,5 @@
 import '../utils/date_utils.dart';
+import '../utils/json_utils.dart';
 
 /// 消耗物资（食品 / 护肤品 / 日化用品 保质期台账）
 ///
@@ -42,14 +43,15 @@ class HomeSupply {
       };
 
   factory HomeSupply.fromMap(Map<String, Object?> map) => HomeSupply(
-        id: map['id'] as int?,
+        // json_utils 宽松转换：兼容导入备份中 num/double/String 形态的整数字段
+        id: asInt(map['id']),
         name: map['name'] as String,
         purchaseDate: DateTime.parse(map['purchaseDate'] as String).toUtc(),
         expireDate: DateTime.parse(map['expireDate'] as String).toUtc(),
         isOpened: map['isOpened'] == 1 || map['isOpened'] == true,
         openDate: parseUtc(map['openDate'] as String?),
-        afterOpenDays: map['afterOpenDays'] == null ? null : (map['afterOpenDays'] as num).toInt(),
-        categoryId: map['categoryId'] == null ? null : (map['categoryId'] as num).toInt(),
+        afterOpenDays: asInt(map['afterOpenDays']),
+        categoryId: asInt(map['categoryId']),
         note: map['note'] as String?,
       );
 }

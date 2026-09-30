@@ -1,4 +1,6 @@
 /// 普通收纳物件
+import '../utils/json_utils.dart';
+
 class StoredItem {
   int? id;
   String name;
@@ -19,11 +21,11 @@ class StoredItem {
       };
 
   factory StoredItem.fromMap(Map<String, Object?> map) => StoredItem(
-        id: map['id'] as int?,
+        id: asInt(map['id']),
         name: map['name'] as String,
-        count: (map['count'] as num?)?.toInt() ?? 1,
-        locationId: map['locationId'] as int?,
-        categoryId: map['categoryId'] == null ? null : (map['categoryId'] as num).toInt(),
+        count: asInt(map['count']) ?? 1,
+        locationId: asInt(map['locationId']),
+        categoryId: asInt(map['categoryId']),
         note: map['note'] as String?,
       );
 }

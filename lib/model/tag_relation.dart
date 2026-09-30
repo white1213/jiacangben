@@ -1,4 +1,6 @@
 /// 标签归属关系
+import '../utils/json_utils.dart';
+
 class TagRelation {
   static const String ownerTypeSupply = 'supply';
   static const String ownerTypeStoredItem = 'storedItem';
@@ -18,9 +20,9 @@ class TagRelation {
       };
 
   factory TagRelation.fromMap(Map<String, Object?> map) => TagRelation(
-        id: map['id'] as int?,
+        id: asInt(map['id']),
         ownerType: map['ownerType'] as String,
-        ownerId: (map['ownerId'] as num).toInt(),
-        tagId: (map['tagId'] as num).toInt(),
+        ownerId: asInt(map['ownerId']) ?? 0,
+        tagId: asInt(map['tagId']) ?? 0,
       );
 }
