@@ -13,6 +13,7 @@ class HomeSupply {
   DateTime? openDate; // 开封日期（UTC）
   int? afterOpenDays; // 开封后建议使用天数，可为 null
   int? categoryId; // v1.1：归属分类 item_category.id，可为 null
+  int count; // v1.4：当前库存数量（领用出库时扣减）
   String? note;
 
   HomeSupply({
@@ -24,6 +25,7 @@ class HomeSupply {
     this.openDate,
     this.afterOpenDays,
     this.categoryId,
+    this.count = 1,
     this.note,
   });
 
@@ -39,6 +41,7 @@ class HomeSupply {
         'openDate': toUtcIsoString(openDate),
         'afterOpenDays': afterOpenDays,
         'categoryId': categoryId,
+        'count': count,
         'note': note,
       };
 
@@ -52,6 +55,7 @@ class HomeSupply {
         openDate: parseUtc(map['openDate'] as String?),
         afterOpenDays: asInt(map['afterOpenDays']),
         categoryId: asInt(map['categoryId']),
+        count: asInt(map['count']) ?? 1, // 旧数据/旧备份无该列时默认 1
         note: map['note'] as String?,
       );
 }

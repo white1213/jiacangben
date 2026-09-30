@@ -18,6 +18,13 @@ class SupplyService {
     return rows.map(HomeSupply.fromMap).toList();
   }
 
+  /// v1.4：按 id 读取单条（领用出库后刷新详情用）
+  Future<HomeSupply?> getById(int id) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(_table, where: 'id = ?', whereArgs: [id], limit: 1);
+    return rows.isEmpty ? null : HomeSupply.fromMap(rows.first);
+  }
+
   /// 按名称或备注模糊搜索
   Future<List<HomeSupply>> search(String keyword) async {
     final kw = '%${keyword.trim()}%';
@@ -26,7 +33,7 @@ class SupplyService {
       _table,
       where: "name LIKE ? OR IFNULL(note, '') LIKE ?",
       whereArgs: [kw, kw],
-      orderBy: 'expireDate ASC',
+      orderBy: 'id ASC', // v1.4：默认录入顺序，排序由列表页按配置执行
     );
     return rows.map(HomeSupply.fromMap).toList();
   }
@@ -64,7 +71,7 @@ class SupplyService {
       _table,
       where: where.isEmpty ? null : where.join(' AND '),
       whereArgs: where.isEmpty ? null : args,
-      orderBy: 'expireDate ASC',
+      orderBy: 'id ASC', // v1.4：默认录入顺序，排序由列表页按配置执行
     );
     return rows.map(HomeSupply.fromMap).toList();
   }

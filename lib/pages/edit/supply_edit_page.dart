@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../consts.dart';
 import '../../database/attachment_service.dart';
 import '../../database/category_service.dart';
+import '../../database/consume_log_service.dart';
 import '../../database/supply_service.dart';
 import '../../database/tag_service.dart';
 import '../../database/template_service.dart';
@@ -16,6 +17,7 @@ import '../../service/expiry_service.dart';
 import '../../service/settings_service.dart';
 import '../../utils/date_utils.dart';
 import 'attachment_section.dart';
+import 'consume_history_section.dart';
 import 'tag_field.dart';
 
 /// 新增 / 编辑消耗物资
@@ -35,6 +37,10 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _afterOpenDaysCtrl;
   late final TextEditingController _noteCtrl;
+  late final TextEditingController _countCtrl; // v1.4：库存数量
+
+  /// v1.4：领用出库后的剩余库存（编辑态实时刷新；新增态为 null）
+  int? _remainingCount;
 
   /// 页面内日期统一使用本地时区（选择器语义），入库时由 Model 统一转 UTC
   DateTime? _purchaseDate;
@@ -59,6 +65,8 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     _nameCtrl = TextEditingController(text: s?.name ?? '');
     _afterOpenDaysCtrl = TextEditingController(text: s?.afterOpenDays?.toString() ?? '');
     _noteCtrl = TextEditingController(text: s?.note ?? '');
+    _countCtrl = TextEditingController(text: (s?.count ?? 1).toString());
+    _remainingCount = s?.count;
     _purchaseDate = s?.purchaseDate.toLocal();
     _expireDate = s?.expireDate.toLocal();
     _openDate = s?.openDate?.toLocal();
@@ -72,6 +80,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     _nameCtrl.dispose();
     _afterOpenDaysCtrl.dispose();
     _noteCtrl.dispose();
+    _countCtrl.dispose();
     super.dispose();
   }
 
@@ -153,6 +162,9 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       }
     }
     final note = _noteCtrl.text.trim();
+    // v1.4：库存数量校验（整数 >= 0；领用出库会同步改写该输入框）
+    final count = int.tryParse(_countCtrl.text.trim()) ?? 1;
+    if (count < 0) return _snack('数量必须是大于等于 0 的整数');
     final supply = HomeSupply(
       id: widget.supply?.id,
       name: name,
@@ -162,6 +174,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       openDate: _isOpened ? _openDate : null,
       afterOpenDays: _isOpened ? afterOpenDays : null,
       categoryId: _categoryId,
+      count: count,
       note: note.isEmpty ? null : note,
     );
     try {
@@ -214,6 +227,64 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     }
     await _service.delete(id);
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// v1.4：领用出库（弹窗输入扣减数量 + 可选备注；库存扣减与流水写入在同一事务）
+  Future<void> _consume() async {
+    final id = widget.supply?.id;
+    if (id == null) return;
+    final countCtrl = TextEditingController();
+    final remarkCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('领用出库'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('当前剩余：${_remainingCount ?? '-'}', style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: countCtrl,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: '本次领用数量 *', hintText: '正整数，不超过剩余库存'),
+            ),
+            TextField(
+              controller: remarkCtrl,
+              decoration: const InputDecoration(labelText: '备注', hintText: '如：吃掉 / 过期丢弃 / 使用完毕'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确认出库')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final deduct = int.tryParse(countCtrl.text.trim());
+    if (deduct == null || deduct <= 0) {
+      _snack('领用数量必须是大于 0 的整数');
+      return;
+    }
+    try {
+      final remaining = await ConsumeLogService().consume(
+        supplyId: id,
+        deductCount: deduct,
+        remark: remarkCtrl.text.trim().isEmpty ? null : remarkCtrl.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _remainingCount = remaining;
+        _countCtrl.text = remaining.toString();
+      });
+      _snack('已出库 $deduct，剩余 $remaining（流水已记录）');
+    } on StateError catch (e) {
+      _snack(e.message.replaceAll('Exception: ', ''));
+    } catch (e) {
+      _snack('出库失败：$e');
+    }
   }
 
   /// 最终失效时间实时预览
@@ -293,6 +364,12 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
             ],
             onChanged: (v) => setState(() => _categoryId = v),
           ),
+          // v1.4：库存数量
+          TextFormField(
+            controller: _countCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: '数量 *', hintText: '整数，默认 1；领用出库自动扣减'),
+          ),
           _dateTile('购入日期 *', _purchaseDate, (d) => setState(() => _purchaseDate = d)),
           _dateTile('外包装到期日期 *', _expireDate, (d) => setState(() => _expireDate = d)),
           CheckboxListTile(
@@ -319,6 +396,24 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
             ),
           ],
           _buildPreview() ?? const SizedBox.shrink(),
+          // v1.4：领用出库入口（仅编辑已有物资时可用）
+          if (_isEditing)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _consume,
+                      icon: const Icon(Icons.outbound),
+                      label: const Text('领用出库'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text('当前剩余：${_remainingCount ?? '-'}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
           const SizedBox(height: 12),
           Text('标签', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 4),
@@ -345,6 +440,15 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
           else
             Text(
               '提示：保存后可返回编辑页添加图片附件',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+          const SizedBox(height: 16),
+          // v1.4：出库流水历史（只读，不可编辑/删除）
+          if (_isEditing)
+            ConsumeHistorySection(supplyId: widget.supply!.id!)
+          else
+            Text(
+              '提示：保存后可进行领用出库并生成流水',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
         ],

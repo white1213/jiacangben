@@ -16,6 +16,7 @@ import '../model/tag_relation.dart';
 import '../service/expiry_service.dart';
 import '../service/settings_service.dart';
 import '../utils/date_utils.dart';
+import '../utils/list_sort.dart';
 import 'edit/attachment_section.dart';
 import 'edit/supply_edit_page.dart';
 import 'filter_dialog.dart';
@@ -119,7 +120,8 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
     final tags = await _tagService.tagsByOwner(TagRelation.ownerTypeSupply);
     final categories = await CategoryService().listAll(targetType: ItemCategory.targetTypeSupply);
     final warnDays = await SettingsService().getWarnDays();
-    supplies.sort((a, b) => ExpiryService.finalExpireDate(a).compareTo(ExpiryService.finalExpireDate(b)));
+    // v1.4：按当前排序配置排序（录入顺序/名称/数量/到期时间）
+    sortSupplies(supplies, _listFilter.sortBy);
     if (!mounted) return;
     setState(() {
       _supplies = supplies;
@@ -325,9 +327,20 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
       );
       _listFilter = result.filter;
     });
-    // 激活筛选持久化（供子集导出与下次进入还原）
+    // 激活筛选持久化（供子集导出与下次进入还原；含排序配置）
     await SettingsService().setActiveFilter(ItemCategory.targetTypeSupply, _listFilter);
     await _reload();
+  }
+
+  /// v1.4：切换排序方式（与筛选、搜索叠加；持久化到激活筛选）
+  Future<void> _changeSort(String sortBy) async {
+    if (sortBy == _listFilter.sortBy) return;
+    setState(() {
+      _listFilter.sortBy = sortBy;
+      // 排序仅影响展示顺序，直接对已加载数据重排即可，无需重新查库
+      sortSupplies(_supplies, sortBy);
+    });
+    await SettingsService().setActiveFilter(ItemCategory.targetTypeSupply, _listFilter);
   }
 
   /// v1.2：保存当前筛选条件（v1.3 起完整序列化 状态+分类+标签，向下兼容旧数据）
@@ -479,6 +492,21 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
           : AppBar(
               title: const Text('消耗物资库'),
               actions: [
+                // v1.4：排序下拉（与筛选/搜索叠加）
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.sort),
+                  tooltip: '排序',
+                  onSelected: _changeSort,
+                  itemBuilder: (_) => [
+                    // 消耗物资列表显示全部排序项（含到期时间升序）
+                    for (final (key, label, _) in kListSortOptions)
+                      CheckedPopupMenuItem<String>(
+                        value: key,
+                        checked: _listFilter.sortBy == key,
+                        child: Text(label),
+                      ),
+                  ],
+                ),
                 // v1.3：筛选弹窗入口，激活时 Badge 高亮
                 Badge(
                   isLabelVisible: _hasActiveFilter,
@@ -602,7 +630,7 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
           padding: const EdgeInsets.only(top: 2),
           child: Text(
             '失效：${formatLocalDate(ExpiryService.finalExpireDate(supply))}（${ExpiryService.describeLeft(supply)}）\n'
-            '购入：${formatLocalDate(supply.purchaseDate)}${supply.isOpened ? ' · 已开封' : ''}',
+            '购入：${formatLocalDate(supply.purchaseDate)} · 数量：${supply.count}${supply.isOpened ? ' · 已开封' : ''}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),

@@ -16,6 +16,7 @@ import 'edit/attachment_section.dart';
 import 'edit/item_edit_page.dart';
 import 'filter_dialog.dart';
 import 'supply_list_page.dart' show MiniTagChip;
+import '../utils/list_sort.dart';
 
 /// 全部普通物件列表页（传 [locationId] 时为某收纳位置详情）
 /// v1.1 新增：多选批量操作（批量迁移收纳位置 / 批量删除）
@@ -71,6 +72,8 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
     final locations = await _locationService.listAll();
     final tags = await _tagService.tagsByOwner(TagRelation.ownerTypeStoredItem);
     final categories = await CategoryService().listAll(targetType: ItemCategory.targetTypeThing);
+    // v1.4：按当前排序配置排序（物件无到期时间项）
+    sortStoredItems(items, _listFilter.sortBy);
     if (!mounted) return;
     setState(() {
       _items = items;
@@ -203,6 +206,17 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
     if (mounted) _snack('已删除 $deleted 件物件');
   }
 
+  /// v1.4：切换排序方式（与筛选、搜索叠加；持久化到激活筛选）
+  Future<void> _changeSort(String sortBy) async {
+    if (sortBy == _listFilter.sortBy) return;
+    setState(() {
+      _listFilter.sortBy = sortBy;
+      // 排序仅影响展示顺序，直接对已加载数据重排即可
+      sortStoredItems(_items, sortBy);
+    });
+    await SettingsService().setActiveFilter(ItemCategory.targetTypeThing, _listFilter);
+  }
+
   /// v1.3：打开筛选弹窗（分类 + 标签），应用后持久化激活筛选并刷新
   Future<void> _showFilter() async {
     final tags = await _tagService.listAll();
@@ -304,6 +318,21 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
           : AppBar(
               title: Text(widget.appBarTitle ?? '全部物件'),
               actions: [
+                // v1.4：排序下拉（物件不显示到期时间项）
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.sort),
+                  tooltip: '排序',
+                  onSelected: _changeSort,
+                  itemBuilder: (_) => [
+                    for (final (key, label, supplyOnly) in kListSortOptions)
+                      if (!supplyOnly)
+                        CheckedPopupMenuItem<String>(
+                          value: key,
+                          checked: _listFilter.sortBy == key,
+                          child: Text(label),
+                        ),
+                  ],
+                ),
                 // v1.3：筛选弹窗入口，激活时 Badge 高亮
                 if (widget.locationId == null)
                   Badge(

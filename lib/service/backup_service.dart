@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../consts.dart';
 import '../database/database_helper.dart';
+import '../model/consume_log.dart';
 import '../model/entry_template.dart';
 import '../model/home_supply.dart';
 import '../model/saved_filter.dart';
@@ -34,6 +35,8 @@ class BackupService {
       // v1.2：录入模板与保存筛选为纯数据，纳入备份；图片附件（media_attachment）不进 JSON 备份
       'entryTemplate': await db.query('entry_template', orderBy: 'id'),
       'savedFilter': await db.query('saved_filter', orderBy: 'id'),
+      // v1.4：领用出库流水纳入备份
+      'consumeLog': await db.query('consume_log', orderBy: 'id'),
     };
   }
 
@@ -110,6 +113,10 @@ class BackupService {
       for (final row in (decoded['savedFilter'] as List?) ?? const []) {
         SavedFilter.fromMap(_asRowMap(row, 'savedFilter'));
       }
+      // v1.4：领用出库流水（旧备份缺该键视为空）
+      for (final row in (decoded['consumeLog'] as List?) ?? const []) {
+        ConsumeLog.fromMap(_asRowMap(row, 'consumeLog'));
+      }
     } catch (e) {
       throw FormatException('数据校验失败：$e');
     }
@@ -132,6 +139,7 @@ class BackupService {
         'tag',
         'entry_template',
         'saved_filter',
+        'consume_log',
       ]) {
         await txn.delete(table);
       }
@@ -142,6 +150,7 @@ class BackupService {
       total += await _bulkInsert(txn, 'tag_relation', data['tagRelation'] as List);
       total += await _bulkInsert(txn, 'entry_template', (data['entryTemplate'] as List?) ?? const []);
       total += await _bulkInsert(txn, 'saved_filter', (data['savedFilter'] as List?) ?? const []);
+      total += await _bulkInsert(txn, 'consume_log', (data['consumeLog'] as List?) ?? const []);
     });
     return total;
   }

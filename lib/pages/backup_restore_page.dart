@@ -10,9 +10,9 @@ import '../database/location_service.dart';
 import '../database/supply_service.dart';
 import '../model/item_category.dart';
 import '../service/export_service.dart';
-import '../service/expiry_service.dart';
 import '../service/settings_service.dart';
 import '../utils/date_utils.dart';
+import '../utils/list_sort.dart';
 
 /// 备份与恢复页面
 /// v1.1 新增：子集导出（CSV / Markdown 清单，仅导出阅读用，不支持导入）
@@ -233,7 +233,8 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
           categoryId: active?.categoryId,
           tagIds: active?.tagIds ?? const {},
         );
-        supplies.sort((a, b) => ExpiryService.finalExpireDate(a).compareTo(ExpiryService.finalExpireDate(b)));
+        // v1.4：跟随当前生效排序输出
+        sortSupplies(supplies, active?.sortBy ?? 'entryOrder');
         final text = isMd ? _exportService.buildSuppliesMarkdown(supplies) : kUtf8Bom + _exportService.buildSuppliesCsv(supplies);
         file = await _exportService.exportText('supplies', text, isMarkdown: isMd);
         // 剪贴板里不放 BOM
@@ -243,6 +244,8 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
           categoryId: active?.categoryId,
           tagIds: active?.tagIds ?? const {},
         );
+        // v1.4：跟随当前生效排序输出
+        sortStoredItems(items, active?.sortBy ?? 'entryOrder');
         final locations = await LocationService().listAll();
         final names = {for (final l in locations) if (l.id != null) l.id!: l.name};
         final text = isMd ? _exportService.buildItemsMarkdown(items, locationNames: names) : kUtf8Bom + _exportService.buildItemsCsv(items, locationNames: names);

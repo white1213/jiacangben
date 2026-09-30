@@ -30,7 +30,7 @@ class ItemService {
       _table,
       where: "name LIKE ? OR IFNULL(note, '') LIKE ?",
       whereArgs: [kw, kw],
-      orderBy: 'name ASC',
+      orderBy: 'id ASC', // v1.4：默认录入顺序，排序由列表页按配置执行
     );
     return rows.map(StoredItem.fromMap).toList();
   }
@@ -66,7 +66,7 @@ class ItemService {
       _table,
       where: where.isEmpty ? null : where.join(' AND '),
       whereArgs: where.isEmpty ? null : args,
-      orderBy: 'name ASC',
+      orderBy: 'id ASC', // v1.4：默认录入顺序，排序由列表页按配置执行
     );
     return rows.map(StoredItem.fromMap).toList();
   }

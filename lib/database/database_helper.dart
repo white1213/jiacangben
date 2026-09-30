@@ -9,7 +9,7 @@ class DatabaseHelper {
 
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
-  static const int dbVersion = 3; // v3：media_attachment / entry_template / saved_filter 三表
+  static const int dbVersion = 4; // v4：consume_log 出库流水表 + home_supply 补 count 列
 
   Database? _database;
 
@@ -49,6 +49,8 @@ class DatabaseHelper {
     // 缺失的列：ALTER 失败（列已存在）则忽略
     await _addColumnIfMissing(db, 'home_supply', 'categoryId', 'INTEGER');
     await _addColumnIfMissing(db, 'stored_item', 'categoryId', 'INTEGER');
+    // v4：库存数量列（自愈覆盖 v1.2.0 缺陷 onCreate 等历史形态）
+    await _addColumnIfMissing(db, 'home_supply', 'count', 'INTEGER NOT NULL DEFAULT 1');
   }
 
   Future<void> _addColumnIfMissing(Database db, String table, String column, String type) async {
@@ -93,6 +95,7 @@ class DatabaseHelper {
         openDate TEXT,
         afterOpenDays INTEGER,
         categoryId INTEGER,
+        count INTEGER NOT NULL DEFAULT 1,
         note TEXT
       )
     ''');
@@ -143,11 +146,21 @@ class DatabaseHelper {
         filterJson TEXT
       )
     ''');
+    batch.execute('''
+      CREATE TABLE consume_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplyId INTEGER NOT NULL,
+        deductCount INTEGER NOT NULL,
+        consumeTime TEXT NOT NULL,
+        remark TEXT
+      )
+    ''');
     batch.execute('CREATE INDEX idx_stored_item_location ON stored_item(locationId)');
     batch.execute('CREATE INDEX idx_tag_relation_owner ON tag_relation(ownerType, ownerId)');
     batch.execute('CREATE INDEX idx_tag_relation_tag ON tag_relation(tagId)');
     batch.execute('CREATE INDEX idx_item_category_target ON item_category(targetType)');
     batch.execute('CREATE INDEX idx_media_attachment_owner ON media_attachment(ownerType, ownerId)');
+    batch.execute('CREATE INDEX idx_consume_log_supply ON consume_log(supplyId)');
     await batch.commit(noResult: true);
   }
 
@@ -198,6 +211,22 @@ class DatabaseHelper {
         )
       ''');
       batch.execute('CREATE INDEX IF NOT EXISTS idx_media_attachment_owner ON media_attachment(ownerType, ownerId)');
+      await batch.commit(noResult: true);
+    }
+    // v3 -> v4：新增领用出库流水表；home_supply 补 count 列（默认 1，老数据无损）
+    if (oldVersion < 4) {
+      final batch = db.batch();
+      batch.execute('''
+        CREATE TABLE IF NOT EXISTS consume_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supplyId INTEGER NOT NULL,
+          deductCount INTEGER NOT NULL,
+          consumeTime TEXT NOT NULL,
+          remark TEXT
+        )
+      ''');
+      batch.execute('CREATE INDEX IF NOT EXISTS idx_consume_log_supply ON consume_log(supplyId)');
+      batch.execute("ALTER TABLE home_supply ADD COLUMN count INTEGER NOT NULL DEFAULT 1");
       await batch.commit(noResult: true);
     }
   }
