@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../database/attachment_service.dart';
+import '../database/category_service.dart';
 import '../database/item_service.dart';
 import '../database/location_service.dart';
 import '../database/tag_service.dart';
+import '../model/item_category.dart';
+import '../model/list_filter.dart';
 import '../model/media_attachment.dart';
 import '../model/stored_item.dart';
 import '../model/tag.dart';
 import '../model/tag_relation.dart';
+import '../service/settings_service.dart';
 import 'edit/attachment_section.dart';
 import 'edit/item_edit_page.dart';
+import 'filter_dialog.dart';
 import 'supply_list_page.dart' show MiniTagChip;
 
 /// 全部普通物件列表页（传 [locationId] 时为某收纳位置详情）
@@ -39,18 +44,33 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
   bool _selectMode = false;
   Set<int> _selectedIds = {};
 
+  // v1.3 分类 + 标签筛选（与文本搜索叠加）
+  ListFilter _listFilter = ListFilter();
+  List<ItemCategory> _categories = const [];
+
   @override
   void initState() {
     super.initState();
-    _reload();
+    _init();
+  }
+
+  /// v1.3：进入页面还原上次激活的筛选条件（分类+标签），再加载列表
+  Future<void> _init() async {
+    final active = await SettingsService().getActiveFilter(ItemCategory.targetTypeThing);
+    if (active != null && mounted) {
+      setState(() => _listFilter = active);
+    }
+    await _reload();
   }
 
   Future<void> _reload() async {
+    // v1.3：分类+标签筛选下沉到 SQL（tag_relation 子查询 OR 语义）；文本搜索保持内存过滤
     final items = widget.locationId == null
-        ? await _itemService.listAll()
+        ? await _itemService.listFiltered(categoryId: _listFilter.categoryId, tagIds: _listFilter.tagIds)
         : await _itemService.listByLocation(widget.locationId!);
     final locations = await _locationService.listAll();
     final tags = await _tagService.tagsByOwner(TagRelation.ownerTypeStoredItem);
+    final categories = await CategoryService().listAll(targetType: ItemCategory.targetTypeThing);
     if (!mounted) return;
     setState(() {
       _items = items;
@@ -59,6 +79,7 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
           if (l.id != null) l.id!: l.name,
       };
       _tagsByOwner = tags;
+      _categories = categories;
       _loading = false;
     });
   }
@@ -182,6 +203,23 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
     if (mounted) _snack('已删除 $deleted 件物件');
   }
 
+  /// v1.3：打开筛选弹窗（分类 + 标签），应用后持久化激活筛选并刷新
+  Future<void> _showFilter() async {
+    final tags = await _tagService.listAll();
+    if (!mounted) return;
+    final result = await showFilterDialog(
+      context,
+      categories: _categories,
+      tags: tags,
+      initialFilter: _listFilter,
+      categoryTargetType: ItemCategory.targetTypeThing,
+    );
+    if (result == null || !mounted) return;
+    setState(() => _listFilter = result.filter);
+    await SettingsService().setActiveFilter(ItemCategory.targetTypeThing, _listFilter);
+    await _reload();
+  }
+
   /// 条目长按上下文菜单（编辑 / 多选 / 删除）
   Future<void> _showItemMenu(StoredItem item) async {
     final action = await showModalBottomSheet<String>(
@@ -266,6 +304,16 @@ class _StoredItemListPageState extends State<StoredItemListPage> {
           : AppBar(
               title: Text(widget.appBarTitle ?? '全部物件'),
               actions: [
+                // v1.3：筛选弹窗入口，激活时 Badge 高亮
+                if (widget.locationId == null)
+                  Badge(
+                    isLabelVisible: _listFilter.isNotEmpty,
+                    child: IconButton(
+                      icon: const Icon(Icons.filter_alt),
+                      tooltip: '筛选',
+                      onPressed: _showFilter,
+                    ),
+                  ),
                 // v1.3：多选批量操作入口（长按菜单之外的标准入口）
                 IconButton(
                   icon: const Icon(Icons.checklist),

@@ -8,8 +8,10 @@ import '../service/backup_service.dart';
 import '../database/item_service.dart';
 import '../database/location_service.dart';
 import '../database/supply_service.dart';
+import '../model/item_category.dart';
 import '../service/export_service.dart';
 import '../service/expiry_service.dart';
+import '../service/settings_service.dart';
 import '../utils/date_utils.dart';
 
 /// 备份与恢复页面
@@ -212,23 +214,35 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     );
   }
 
-  /// v1.1：子集导出（CSV / Markdown 清单），仅外部阅读用，不能导入回 App
+  /// v1.1：子集导出（CSV / Markdown 清单），仅外部阅读用，不能导入回 App。
+  /// v1.3：自动套用列表页当前激活的分类/标签筛选（无激活筛选则导出全部）。
   Future<void> _exportSubset() async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
       final isMd = _exportAsMarkdown;
+      final isSupply = _exportType == 'supply';
+      // v1.3：读取列表页当前激活的筛选条件（分类 + 标签 OR）
+      final active = await SettingsService().getActiveFilter(
+        isSupply ? ItemCategory.targetTypeSupply : ItemCategory.targetTypeThing,
+      );
       late File file;
       late String clipboardText;
-      if (_exportType == 'supply') {
-        final supplies = await SupplyService().listAll();
+      if (isSupply) {
+        final supplies = await SupplyService().listFiltered(
+          categoryId: active?.categoryId,
+          tagIds: active?.tagIds ?? const {},
+        );
         supplies.sort((a, b) => ExpiryService.finalExpireDate(a).compareTo(ExpiryService.finalExpireDate(b)));
         final text = isMd ? _exportService.buildSuppliesMarkdown(supplies) : kUtf8Bom + _exportService.buildSuppliesCsv(supplies);
         file = await _exportService.exportText('supplies', text, isMarkdown: isMd);
         // 剪贴板里不放 BOM
         clipboardText = isMd ? text : text.substring(kUtf8Bom.length);
       } else {
-        final items = await ItemService().listAll();
+        final items = await ItemService().listFiltered(
+          categoryId: active?.categoryId,
+          tagIds: active?.tagIds ?? const {},
+        );
         final locations = await LocationService().listAll();
         final names = {for (final l in locations) if (l.id != null) l.id!: l.name};
         final text = isMd ? _exportService.buildItemsMarkdown(items, locationNames: names) : kUtf8Bom + _exportService.buildItemsCsv(items, locationNames: names);
@@ -299,6 +313,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
             const SizedBox(height: 6),
             Text(
               '将物资或物件清单导出为 CSV / Markdown 文件，适合用 Excel、笔记软件等外部工具阅读。'
+              'v1.3 起自动遵循列表页当前激活的筛选条件（分类 + 标签），无激活筛选则导出全部。'
               '注意：清单不能导入回 App，恢复数据请使用上方的全量 JSON 备份。',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
             ),

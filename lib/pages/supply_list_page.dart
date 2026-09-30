@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../consts.dart';
 import '../database/attachment_service.dart';
+import '../database/category_service.dart';
 import '../database/saved_filter_service.dart';
 import '../database/supply_service.dart';
 import '../database/tag_service.dart';
 import '../model/home_supply.dart';
+import '../model/item_category.dart';
+import '../model/list_filter.dart';
 import '../model/media_attachment.dart';
 import '../model/saved_filter.dart';
 import '../model/tag.dart';
@@ -15,6 +18,7 @@ import '../service/settings_service.dart';
 import '../utils/date_utils.dart';
 import 'edit/attachment_section.dart';
 import 'edit/supply_edit_page.dart';
+import 'filter_dialog.dart';
 
 /// 到期状态标签（颜色规范见 consts.dart）
 class StatusChip extends StatelessWidget {
@@ -60,7 +64,6 @@ class MiniTagChip extends StatelessWidget {
 }
 
 enum _SupplyFilter { all, expiringSoon, expired }
-
 /// 消耗物资列表页
 /// v1.1 新增：多选批量操作（批量标记已开封 / 批量删除）
 class HomeSupplyListPage extends StatefulWidget {
@@ -77,7 +80,10 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
   bool _loading = true;
   List<HomeSupply> _supplies = const [];
   Map<int, List<Tag>> _tagsByOwner = const {};
+  // v1.3：状态筛选保留（原顶部段选择器移入筛选弹窗），分类+标签走 ListFilter
   _SupplyFilter _filter = _SupplyFilter.all;
+  ListFilter _listFilter = ListFilter();
+  List<ItemCategory> _categories = const [];
 
   // v1.1 多选模式
   bool _selectMode = false;
@@ -92,18 +98,33 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
   @override
   void initState() {
     super.initState();
-    _reload();
+    _init();
+  }
+
+  /// v1.3：进入页面还原上次激活的筛选条件（分类+标签），再加载列表
+  Future<void> _init() async {
+    final active = await SettingsService().getActiveFilter(ItemCategory.targetTypeSupply);
+    if (active != null && mounted) {
+      setState(() => _listFilter = active);
+    }
+    await _reload();
   }
 
   Future<void> _reload() async {
-    final supplies = await _service.listAll();
+    // v1.3：分类+标签筛选下沉到 SQL（tag_relation 子查询 OR 语义），状态筛选在内存中计算
+    final supplies = await _service.listFiltered(
+      categoryId: _listFilter.categoryId,
+      tagIds: _listFilter.tagIds,
+    );
     final tags = await _tagService.tagsByOwner(TagRelation.ownerTypeSupply);
+    final categories = await CategoryService().listAll(targetType: ItemCategory.targetTypeSupply);
     final warnDays = await SettingsService().getWarnDays();
     supplies.sort((a, b) => ExpiryService.finalExpireDate(a).compareTo(ExpiryService.finalExpireDate(b)));
     if (!mounted) return;
     setState(() {
       _supplies = supplies;
       _tagsByOwner = tags;
+      _categories = categories;
       _warnDays = warnDays;
       _loading = false;
     });
@@ -119,6 +140,9 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
         return _supplies.where((s) => ExpiryService.statusOf(s) == ExpiryStatus.expired).toList();
     }
   }
+
+  /// v1.3：是否存在激活的筛选条件（弹窗 Badge 高亮）
+  bool get _hasActiveFilter => _listFilter.isNotEmpty || _filter != _SupplyFilter.all;
 
   void _snack(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
@@ -281,7 +305,32 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
     if (mounted) _snack('已删除「${supply.name}」');
   }
 
-  /// v1.2：保存当前筛选条件（状态筛选，命名保存后可一键加载）
+  /// v1.3：打开筛选弹窗（状态 + 分类 + 标签），应用后持久化激活筛选并刷新
+  Future<void> _showFilter() async {
+    final tags = await _tagService.listAll();
+    if (!mounted) return;
+    final result = await showFilterDialog(
+      context,
+      categories: _categories,
+      tags: tags,
+      initialFilter: _listFilter,
+      initialStatus: _filter.name,
+      categoryTargetType: ItemCategory.targetTypeSupply,
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _filter = _SupplyFilter.values.firstWhere(
+        (v) => v.name == result.status,
+        orElse: () => _SupplyFilter.all,
+      );
+      _listFilter = result.filter;
+    });
+    // 激活筛选持久化（供子集导出与下次进入还原）
+    await SettingsService().setActiveFilter(ItemCategory.targetTypeSupply, _listFilter);
+    await _reload();
+  }
+
+  /// v1.2：保存当前筛选条件（v1.3 起完整序列化 状态+分类+标签，向下兼容旧数据）
   Future<void> _manageSavedFilters() async {
     final filters = await _savedFilterService.listAll(SavedFilter.targetTypeSupply);
     if (!mounted) return;
@@ -310,7 +359,11 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
             final saved = SavedFilter(
               name: name.trim(),
               targetType: SavedFilter.targetTypeSupply,
-              filterJson: {'status': _filter.name},
+              // v1.3：状态 + 分类 + 标签一并序列化
+              filterJson: {
+                'status': _filter.name,
+                ..._listFilter.toJson(),
+              },
             );
             await _savedFilterService.insert(saved);
             setDialogState(() => filters.add(saved));
@@ -370,7 +423,10 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
                                   (v) => v.name == status,
                                   orElse: () => _SupplyFilter.all,
                                 );
+                                // v1.3：还原分类 + 标签筛选（旧版数据缺键视为未筛选）
+                                _listFilter = ListFilter.fromJson(f.filterJson);
                               });
+                              SettingsService().setActiveFilter(ItemCategory.targetTypeSupply, _listFilter);
                               Navigator.pop(ctx);
                             },
                           ),
@@ -423,6 +479,15 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
           : AppBar(
               title: const Text('消耗物资库'),
               actions: [
+                // v1.3：筛选弹窗入口，激活时 Badge 高亮
+                Badge(
+                  isLabelVisible: _hasActiveFilter,
+                  child: IconButton(
+                    icon: const Icon(Icons.filter_alt),
+                    tooltip: '筛选',
+                    onPressed: _showFilter,
+                  ),
+                ),
                 // v1.3：多选批量操作入口（长按菜单之外的标准入口）
                 IconButton(
                   icon: const Icon(Icons.checklist),
@@ -447,18 +512,7 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
       bottomNavigationBar: _selectMode ? _buildBatchBar() : null,
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: SegmentedButton<_SupplyFilter>(
-              segments: const [
-                ButtonSegment(value: _SupplyFilter.all, label: Text('全部')),
-                ButtonSegment(value: _SupplyFilter.expiringSoon, label: Text('临期')),
-                ButtonSegment(value: _SupplyFilter.expired, label: Text('已过期')),
-              ],
-              selected: {_filter},
-              onSelectionChanged: (selection) => setState(() => _filter = selection.first),
-            ),
-          ),
+          // v1.3：原顶部状态段选择器已移入筛选弹窗（与分类、标签筛选整合）
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())

@@ -31,6 +31,44 @@ class SupplyService {
     return rows.map(HomeSupply.fromMap).toList();
   }
 
+  /// v1.3：组合筛选查询（分类 + 标签 OR + 关键词），供列表页筛选弹窗与子集导出使用。
+  /// - [categoryId] 非空时按分类过滤
+  /// - [tagIds] 非空时任一命中即匹配（OR，经 tag_relation 子查询）
+  /// - [keyword] 非空时按名称/备注模糊匹配
+  Future<List<HomeSupply>> listFiltered({
+    String? keyword,
+    int? categoryId,
+    Set<int> tagIds = const {},
+  }) async {
+    final where = <String>[];
+    final args = <Object?>[];
+    if (keyword != null && keyword.trim().isNotEmpty) {
+      final kw = '%${keyword.trim()}%';
+      where.add("(name LIKE ? OR IFNULL(note, '') LIKE ?)");
+      args..add(kw)..add(kw);
+    }
+    if (categoryId != null) {
+      where.add('categoryId = ?');
+      args.add(categoryId);
+    }
+    if (tagIds.isNotEmpty) {
+      final placeholders = List.filled(tagIds.length, '?').join(',');
+      where.add(
+        "EXISTS (SELECT 1 FROM tag_relation tr "
+        "WHERE tr.ownerType = 'supply' AND tr.ownerId = home_supply.id AND tr.tagId IN ($placeholders))",
+      );
+      args.addAll(tagIds);
+    }
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      _table,
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: where.isEmpty ? null : args,
+      orderBy: 'expireDate ASC',
+    );
+    return rows.map(HomeSupply.fromMap).toList();
+  }
+
   Future<int> count() async {
     final db = await _dbHelper.database;
     final rows = await db.rawQuery('SELECT COUNT(*) AS c FROM $_table');
