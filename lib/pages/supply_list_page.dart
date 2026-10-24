@@ -630,7 +630,9 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
           padding: const EdgeInsets.only(top: 2),
           child: Text(
             '失效：${formatLocalDate(ExpiryService.finalExpireDate(supply))}（${ExpiryService.describeLeft(supply)}）\n'
-            '购入：${formatLocalDate(supply.purchaseDate)} · 数量：${supply.count}${supply.isOpened ? ' · 已开封' : ''}',
+            '购入：${formatLocalDate(supply.purchaseDate)} · 数量：${supply.count}'
+            '${supply.isOpened ? ' · 已开封' : ''}'
+            '${supply.hasShelfFormula ? ' · ${formatLocalDate(supply.productionDate!)}产 保${supply.shelfValue}${supply.shelfUnit!.label}' : ''}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),

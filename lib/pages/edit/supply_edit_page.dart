@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../consts.dart';
 import '../../database/attachment_service.dart';
@@ -38,6 +39,13 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
   late final TextEditingController _afterOpenDaysCtrl;
   late final TextEditingController _noteCtrl;
   late final TextEditingController _countCtrl; // v1.4：库存数量
+  late final TextEditingController _prodCtrl; // v1.5：生产日期（8 位数字，如 20250901）
+  late final TextEditingController _shelfCtrl; // v1.5：保质期时长数值
+
+  /// v1.5：到期日双模式 —— true = 算式（生产日期+保质期时长，App 计算到期日），false = 直接选日期。
+  /// 新增默认算式；编辑按原录入方式回填。
+  bool _formulaMode = true;
+  ShelfUnit _shelfUnit = ShelfUnit.month; // v1.5：时长单位，默认月（包装最常见）
 
   /// v1.4：领用出库后的剩余库存（编辑态实时刷新；新增态为 null）
   int? _remainingCount;
@@ -66,6 +74,12 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     _afterOpenDaysCtrl = TextEditingController(text: s?.afterOpenDays?.toString() ?? '');
     _noteCtrl = TextEditingController(text: s?.note ?? '');
     _countCtrl = TextEditingController(text: (s?.count ?? 1).toString());
+    _prodCtrl = TextEditingController(
+      text: s?.productionDate == null ? '' : formatLocalDate(s!.productionDate!).replaceAll('-', ''),
+    );
+    _shelfCtrl = TextEditingController(text: s?.shelfValue?.toString() ?? '');
+    _shelfUnit = s?.shelfUnit ?? ShelfUnit.month;
+    _formulaMode = s?.hasShelfFormula ?? true; // 编辑按原方式回填，新增默认算式
     _remainingCount = s?.count;
     _purchaseDate = s?.purchaseDate.toLocal();
     _expireDate = s?.expireDate.toLocal();
@@ -81,6 +95,8 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     _afterOpenDaysCtrl.dispose();
     _noteCtrl.dispose();
     _countCtrl.dispose();
+    _prodCtrl.dispose();
+    _shelfCtrl.dispose();
     super.dispose();
   }
 
@@ -129,6 +145,48 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     return int.tryParse(text);
   }
 
+  /// v1.5：解析 8 位数字生产日期（yyyymmdd）为本地时区当日零点；非法返回 null
+  DateTime? _parsedProductionDate() {
+    final text = _prodCtrl.text.trim();
+    if (text.length != 8) return null;
+    final year = int.tryParse(text.substring(0, 4));
+    final month = int.tryParse(text.substring(4, 6));
+    final day = int.tryParse(text.substring(6, 8));
+    if (year == null || month == null || day == null) return null;
+    if (year < 2000 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return DateTime(year, month, day); // 越界日（如 2-30）由 Dart 自动规整为 3 月初
+  }
+
+  /// v1.5：算式输入齐全时构造临时对象用于计算（输入不全返回 null）
+  HomeSupply? _formulaSupply() {
+    final prod = _parsedProductionDate();
+    final value = int.tryParse(_shelfCtrl.text.trim());
+    if (prod == null || value == null || value < 1) return null;
+    return HomeSupply(
+      name: '',
+      purchaseDate: prod,
+      expireDate: prod,
+      productionDate: prod,
+      shelfValue: value,
+      shelfUnit: _shelfUnit,
+    );
+  }
+
+  /// v1.5：当前生效的到期日（算式模式实时计算；日期模式为已选值）
+  DateTime? _effectiveExpireDate() =>
+      _formulaMode ? _formulaSupply()?.computeExpireDate() : _expireDate;
+
+  /// v1.5：切换录入模式；离开算式模式时把算出的到期日带走，避免信息丢失
+  void _switchFormulaMode(bool formula) {
+    setState(() {
+      if (!formula) {
+        final computed = _formulaSupply()?.computeExpireDate();
+        if (computed != null) _expireDate = computed;
+      }
+      _formulaMode = formula;
+    });
+  }
+
   /// v1.2：应用录入模板预填表单（用户可继续手动修改）
   void _applyTemplate(EntryTemplate? template) {
     setState(() {
@@ -148,12 +206,32 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) return _snack('请输入物资名称');
     if (_purchaseDate == null) return _snack('请选择购入日期');
-    if (_expireDate == null) return _snack('请选择外包装到期日期');
+    // v1.5：按录入模式解析到期日与算式三件套
+    final DateTime expireDate;
+    final DateTime? productionDate;
+    final int? shelfValue;
+    final ShelfUnit? shelfUnit;
+    if (_formulaMode) {
+      final prod = _parsedProductionDate();
+      if (prod == null) return _snack('请输入正确的生产日期（8 位数字，如 20250901）');
+      final value = int.tryParse(_shelfCtrl.text.trim());
+      if (value == null || value < 1) return _snack('保质期时长必须是大于等于 1 的整数');
+      productionDate = prod;
+      shelfValue = value;
+      shelfUnit = _shelfUnit;
+      expireDate = _formulaSupply()!.computeExpireDate();
+    } else {
+      if (_expireDate == null) return _snack('请选择外包装到期日期');
+      productionDate = null;
+      shelfValue = null;
+      shelfUnit = null;
+      expireDate = _expireDate!;
+    }
     int? afterOpenDays;
     if (_isOpened) {
       if (_openDate == null) return _snack('已开封，请选择开封日期');
       // v1.3 校验：开封日期晚于外包装到期日期属于非法数据
-      if (_openDate!.isAfter(_expireDate!)) {
+      if (_openDate!.isAfter(expireDate)) {
         return _snack('开封日期不能晚于外包装到期日期，请检查填写');
       }
       afterOpenDays = _parsedAfterOpenDays();
@@ -169,12 +247,15 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       id: widget.supply?.id,
       name: name,
       purchaseDate: _purchaseDate!,
-      expireDate: _expireDate!,
+      expireDate: expireDate,
       isOpened: _isOpened,
       openDate: _isOpened ? _openDate : null,
       afterOpenDays: _isOpened ? afterOpenDays : null,
       categoryId: _categoryId,
       count: count,
+      productionDate: productionDate,
+      shelfValue: shelfValue,
+      shelfUnit: shelfUnit,
       note: note.isEmpty ? null : note,
     );
     try {
@@ -287,13 +368,14 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
     }
   }
 
-  /// 最终失效时间实时预览
+  /// 最终失效时间实时预览（v1.5：算式模式下随输入实时计算）
   Widget? _buildPreview() {
-    if (_expireDate == null) return null;
+    final expire = _effectiveExpireDate();
+    if (expire == null) return null;
     final tmp = HomeSupply(
       name: '',
-      purchaseDate: _purchaseDate ?? _expireDate!,
-      expireDate: _expireDate!,
+      purchaseDate: _purchaseDate ?? expire,
+      expireDate: expire,
       isOpened: _isOpened,
       openDate: _openDate,
       afterOpenDays: _parsedAfterOpenDays(),
@@ -371,7 +453,72 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
             decoration: const InputDecoration(labelText: '数量 *', hintText: '整数，默认 1；领用出库自动扣减'),
           ),
           _dateTile('购入日期 *', _purchaseDate, (d) => setState(() => _purchaseDate = d)),
-          _dateTile('外包装到期日期 *', _expireDate, (d) => setState(() => _expireDate = d)),
+          // v1.5：到期日双模式录入 —— 算式（生产日期+保质期）或直接选日期
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: true, label: Text('生产日期+保质期')),
+                ButtonSegment(value: false, label: Text('直接选日期')),
+              ],
+              selected: {_formulaMode},
+              onSelectionChanged: (s) => _switchFormulaMode(s.first),
+            ),
+          ),
+          if (_formulaMode) ...[
+            TextFormField(
+              controller: _prodCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(8),
+              ],
+              decoration: InputDecoration(
+                labelText: '生产日期 *',
+                hintText: '照包装敲 8 位数字，如 20250901',
+                suffixIcon: IconButton(
+                  tooltip: '日历选择',
+                  icon: const Icon(Icons.calendar_month_outlined),
+                  onPressed: () async {
+                    final picked = await pickDate(context, _parsedProductionDate());
+                    if (picked != null) {
+                      setState(() => _prodCtrl.text = formatLocalDate(picked).replaceAll('-', ''));
+                    }
+                  },
+                ),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _shelfCtrl,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: '保质期 *',
+                      hintText: '时长数字，如 9',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SegmentedButton<ShelfUnit>(
+                  segments: const [
+                    ButtonSegment(value: ShelfUnit.day, label: Text('天')),
+                    ButtonSegment(value: ShelfUnit.month, label: Text('月')),
+                    ButtonSegment(value: ShelfUnit.year, label: Text('年')),
+                  ],
+                  selected: {_shelfUnit},
+                  onSelectionChanged: (s) => setState(() => _shelfUnit = s.first),
+                ),
+              ],
+            ),
+          ] else
+            _dateTile('外包装到期日期 *', _expireDate, (d) => setState(() => _expireDate = d)),
           CheckboxListTile(
             value: _isOpened,
             controlAffinity: ListTileControlAffinity.leading,

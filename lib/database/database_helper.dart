@@ -9,7 +9,7 @@ class DatabaseHelper {
 
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
-  static const int dbVersion = 4; // v4：consume_log 出库流水表 + home_supply 补 count 列
+  static const int dbVersion = 5; // v5：home_supply 补算式录入三列（productionDate/shelfValue/shelfUnit）
 
   Database? _database;
 
@@ -51,6 +51,10 @@ class DatabaseHelper {
     await _addColumnIfMissing(db, 'stored_item', 'categoryId', 'INTEGER');
     // v4：库存数量列（自愈覆盖 v1.2.0 缺陷 onCreate 等历史形态）
     await _addColumnIfMissing(db, 'home_supply', 'count', 'INTEGER NOT NULL DEFAULT 1');
+    // v5：算式录入列（生产日期 + 保质期时长，均可空；直接选日期/旧数据为 NULL）
+    await _addColumnIfMissing(db, 'home_supply', 'productionDate', 'TEXT');
+    await _addColumnIfMissing(db, 'home_supply', 'shelfValue', 'INTEGER');
+    await _addColumnIfMissing(db, 'home_supply', 'shelfUnit', 'TEXT');
   }
 
   Future<void> _addColumnIfMissing(Database db, String table, String column, String type) async {
@@ -96,6 +100,9 @@ class DatabaseHelper {
         afterOpenDays INTEGER,
         categoryId INTEGER,
         count INTEGER NOT NULL DEFAULT 1,
+        productionDate TEXT,
+        shelfValue INTEGER,
+        shelfUnit TEXT,
         note TEXT
       )
     ''');
@@ -227,6 +234,15 @@ class DatabaseHelper {
       ''');
       batch.execute('CREATE INDEX IF NOT EXISTS idx_consume_log_supply ON consume_log(supplyId)');
       batch.execute("ALTER TABLE home_supply ADD COLUMN count INTEGER NOT NULL DEFAULT 1");
+      await batch.commit(noResult: true);
+    }
+    // v4 -> v5：home_supply 算式录入三列（生产日期 + 保质期时长，均可空，老数据无损：
+    // 直接选日期录入的记录与旧版本数据这三列保持 NULL，展示与到期计算不受影响）
+    if (oldVersion < 5) {
+      final batch = db.batch();
+      batch.execute('ALTER TABLE home_supply ADD COLUMN productionDate TEXT');
+      batch.execute('ALTER TABLE home_supply ADD COLUMN shelfValue INTEGER');
+      batch.execute('ALTER TABLE home_supply ADD COLUMN shelfUnit TEXT');
       await batch.commit(noResult: true);
     }
   }
