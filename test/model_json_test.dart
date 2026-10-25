@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:jiacangben/model/entry_template.dart';
 import 'package:jiacangben/model/home_supply.dart';
 import 'package:jiacangben/model/stored_item.dart';
 import 'package:jiacangben/model/tag_relation.dart';
@@ -104,5 +105,27 @@ void main() {
     expect(legacy.productionDate, isNull);
     expect(legacy.shelfValue, isNull);
     expect(legacy.shelfUnit, isNull);
+  });
+
+  // v1.7：模板记时长——presetFields 往返与宽容
+  test('EntryTemplate 保质期时长+单位 presetFields 往返；旧模板缺键不受影响', () {
+    final t = EntryTemplate(
+      name: '牛奶',
+      targetType: EntryTemplate.targetTypeSupply,
+      presetFields: {'name': '牛奶', 'shelfValue': 6, 'shelfUnit': 'month', 'afterOpenDays': 3},
+    );
+    final restored = EntryTemplate.fromMap(t.toMap());
+    expect(restored.presetFields['shelfValue'], 6);
+    expect(ShelfUnit.fromName(restored.presetFields['shelfUnit'] as String?), ShelfUnit.month);
+
+    // v1.6 及之前的模板没有保质期键
+    final legacy = EntryTemplate.fromMap({
+      'id': 2,
+      'name': '护肤品',
+      'targetType': 'supply',
+      'presetFields': '{"name":"面霜","afterOpenDays":90}',
+    });
+    expect(legacy.presetFields['shelfValue'], isNull);
+    expect(legacy.presetFields['afterOpenDays'], 90);
   });
 }

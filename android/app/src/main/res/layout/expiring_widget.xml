@@ -25,6 +25,8 @@
         android:text="最近无临期，物资都安全"
         android:textSize="13sp"
         android:textColor="#949494"
+        android:maxLines="1"
+        android:ellipsize="end"
         android:visibility="gone" />
 
     <LinearLayout android:id="@+id/row_0" style="@style/WidgetRow">

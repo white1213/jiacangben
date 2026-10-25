@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../database/template_service.dart';
 import '../model/entry_template.dart';
+import '../model/home_supply.dart';
 
 /// v1.2：录入模板管理页。
-/// 预设字段：物资模板 = 名称 + 开封后建议使用天数 + 备注；物件模板 = 名称 + 数量 + 备注。
-/// 示例：护肤品模板预设开封后 90 天。
+/// 预设字段：物资模板 = 名称 + 保质期时长 + 开封后建议使用天数 + 备注；物件模板 = 名称 + 数量 + 备注。
+/// 示例：护肤品模板预设开封后 90 天；牛奶模板预设保质期 6 个月（v1.7）。
+/// v1.7：生产日期不进模板——它在包装上、每件不同，照敲（v1.5 定下的录入模型）。
 class TemplateManagePage extends StatefulWidget {
   const TemplateManagePage({super.key});
 
@@ -41,6 +43,9 @@ class _TemplateManagePageState extends State<TemplateManagePage> {
     if (name is String && name.isNotEmpty) parts.add('名称：$name');
     final days = t.presetFields['afterOpenDays'];
     if (days is num) parts.add('开封后 $days 天');
+    final shelfValue = t.presetFields['shelfValue'];
+    final shelfUnit = ShelfUnit.fromName(t.presetFields['shelfUnit'] as String?);
+    if (shelfValue is num && shelfUnit != null) parts.add('保质 ${shelfValue.toInt()}${shelfUnit.label}');
     final count = t.presetFields['count'];
     if (count is num) parts.add('数量 ${count.toInt()}');
     final note = t.presetFields['note'];
@@ -52,13 +57,18 @@ class _TemplateManagePageState extends State<TemplateManagePage> {
     final nameCtrl = TextEditingController(text: template?.name ?? '');
     final presetNameCtrl = TextEditingController(text: template?.presetFields['name']?.toString() ?? '');
     final daysCtrl = TextEditingController(text: template?.presetFields['afterOpenDays']?.toString() ?? '');
+    final shelfCtrl = TextEditingController(text: template?.presetFields['shelfValue']?.toString() ?? '');
     final countCtrl = TextEditingController(text: template?.presetFields['count']?.toString() ?? '');
     final noteCtrl = TextEditingController(text: template?.presetFields['note']?.toString() ?? '');
     final isSupply = _tab == EntryTemplate.targetTypeSupply;
+    // v1.7：预设保质期单位（默认月）；生产日期不进模板（包装上每件不同）
+    ShelfUnit shelfUnit = ShelfUnit.fromName(template?.presetFields['shelfUnit'] as String?) ?? ShelfUnit.month;
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => StatefulBuilder(
+        // 单位切换需要弹窗内刷新
+        builder: (ctx, setDialogState) => AlertDialog(
         title: Text(template == null ? '新增模板' : '编辑模板'),
         content: SingleChildScrollView(
           child: Column(
@@ -67,12 +77,35 @@ class _TemplateManagePageState extends State<TemplateManagePage> {
               TextField(controller: nameCtrl, autofocus: true, decoration: const InputDecoration(labelText: '模板名称 *')),
               const SizedBox(height: 8),
               TextField(controller: presetNameCtrl, decoration: const InputDecoration(labelText: '预设名称')),
-              if (isSupply)
+              if (isSupply) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: shelfCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: '预设保质期', hintText: '时长数字，留空不预设'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SegmentedButton<ShelfUnit>(
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(value: ShelfUnit.day, label: Text('天')),
+                        ButtonSegment(value: ShelfUnit.month, label: Text('月')),
+                        ButtonSegment(value: ShelfUnit.year, label: Text('年')),
+                      ],
+                      selected: {shelfUnit},
+                      onSelectionChanged: (s) => setDialogState(() => shelfUnit = s.first),
+                    ),
+                  ],
+                ),
                 TextField(
                   controller: daysCtrl,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(labelText: '预设开封后建议天数', hintText: '如护肤品填 90'),
                 ),
+              ],
               if (!isSupply)
                 TextField(
                   controller: countCtrl,
@@ -87,6 +120,7 @@ class _TemplateManagePageState extends State<TemplateManagePage> {
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('保存')),
         ],
+        ),
       ),
     );
     if (ok != true) return;
@@ -94,6 +128,12 @@ class _TemplateManagePageState extends State<TemplateManagePage> {
     if (name.isEmpty) return;
     final preset = <String, dynamic>{};
     if (presetNameCtrl.text.trim().isNotEmpty) preset['name'] = presetNameCtrl.text.trim();
+    // v1.7：保质期时长 + 单位成对保存（时长留空则单位不存）
+    final shelf = int.tryParse(shelfCtrl.text.trim());
+    if (isSupply && shelf != null) {
+      preset['shelfValue'] = shelf;
+      preset['shelfUnit'] = shelfUnit.name;
+    }
     final days = int.tryParse(daysCtrl.text.trim());
     if (isSupply && days != null) preset['afterOpenDays'] = days;
     final count = int.tryParse(countCtrl.text.trim());

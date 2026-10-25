@@ -188,6 +188,7 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
   }
 
   /// v1.2：应用录入模板预填表单（用户可继续手动修改）
+  /// v1.7：预填保质期时长+单位（生产日期不预填——包装上每件不同，照敲）
   void _applyTemplate(EntryTemplate? template) {
     setState(() {
       _selectedTemplate = template;
@@ -195,6 +196,10 @@ class _SupplyEditPageState extends State<SupplyEditPage> {
       final fields = template.presetFields;
       final name = fields['name'];
       if (name is String && name.isNotEmpty) _nameCtrl.text = name;
+      final shelf = fields['shelfValue'];
+      if (shelf is num) _shelfCtrl.text = shelf.toInt().toString();
+      final unit = ShelfUnit.fromName(fields['shelfUnit'] as String?);
+      if (unit != null) _shelfUnit = unit;
       final days = fields['afterOpenDays'];
       if (days is num) _afterOpenDaysCtrl.text = days.toInt().toString();
       final note = fields['note'];
