@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v1.6：临期提醒小部件（4x2）——固定 5 行，多余行 GONE；RemoteViews 仅支持基础视图/属性 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="12dp">
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="家藏本 · 临期提醒"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:textColor="#5D4037" />
+
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="最近无临期，物资都安全"
+        android:textSize="13sp"
+        android:textColor="#949494"
+        android:visibility="gone" />
+
+    <LinearLayout android:id="@+id/row_0" style="@style/WidgetRow">
+        <TextView android:id="@+id/tv_name_0" style="@style/WidgetRowName" />
+        <TextView android:id="@+id/tv_days_0" style="@style/WidgetRowDays" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/row_1" style="@style/WidgetRow">
+        <TextView android:id="@+id/tv_name_1" style="@style/WidgetRowName" />
+        <TextView android:id="@+id/tv_days_1" style="@style/WidgetRowDays" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/row_2" style="@style/WidgetRow">
+        <TextView android:id="@+id/tv_name_2" style="@style/WidgetRowName" />
+        <TextView android:id="@+id/tv_days_2" style="@style/WidgetRowDays" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/row_3" style="@style/WidgetRow">
+        <TextView android:id="@+id/tv_name_3" style="@style/WidgetRowName" />
+        <TextView android:id="@+id/tv_days_3" style="@style/WidgetRowDays" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/row_4" style="@style/WidgetRow">
+        <TextView android:id="@+id/tv_name_4" style="@style/WidgetRowName" />
+        <TextView android:id="@+id/tv_days_4" style="@style/WidgetRowDays" />
+    </LinearLayout>
+</LinearLayout>

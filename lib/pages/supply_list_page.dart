@@ -64,11 +64,17 @@ class MiniTagChip extends StatelessWidget {
   }
 }
 
-enum _SupplyFilter { all, expiringSoon, expired }
+/// 状态筛选。urgent = 临期+过期合并视图，仅作小部件深链的初始筛选，
+/// 筛选弹窗不提供该选项（用户改选后自动回到常规三态）。
+enum SupplyStatusFilter { all, expiringSoon, expired, urgent }
+
 /// 消耗物资列表页
 /// v1.1 新增：多选批量操作（批量标记已开封 / 批量删除）
 class HomeSupplyListPage extends StatefulWidget {
-  const HomeSupplyListPage({super.key});
+  /// v1.6：初始状态筛选（小部件点击深链传 urgent；默认 all）
+  final SupplyStatusFilter initialFilter;
+
+  const HomeSupplyListPage({super.key, this.initialFilter = SupplyStatusFilter.all});
 
   @override
   State<HomeSupplyListPage> createState() => _HomeSupplyListPageState();
@@ -82,7 +88,7 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
   List<HomeSupply> _supplies = const [];
   Map<int, List<Tag>> _tagsByOwner = const {};
   // v1.3：状态筛选保留（原顶部段选择器移入筛选弹窗），分类+标签走 ListFilter
-  _SupplyFilter _filter = _SupplyFilter.all;
+  SupplyStatusFilter _filter = SupplyStatusFilter.all;
   ListFilter _listFilter = ListFilter();
   List<ItemCategory> _categories = const [];
 
@@ -99,6 +105,7 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
   @override
   void initState() {
     super.initState();
+    _filter = widget.initialFilter;
     _init();
   }
 
@@ -134,17 +141,22 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
 
   List<HomeSupply> get _filtered {
     switch (_filter) {
-      case _SupplyFilter.all:
+      case SupplyStatusFilter.all:
         return _supplies;
-      case _SupplyFilter.expiringSoon:
+      case SupplyStatusFilter.expiringSoon:
         return _supplies.where((s) => ExpiryService.statusOf(s, warnDays: _warnDays) == ExpiryStatus.expiringSoon).toList();
-      case _SupplyFilter.expired:
+      case SupplyStatusFilter.expired:
         return _supplies.where((s) => ExpiryService.statusOf(s) == ExpiryStatus.expired).toList();
+      case SupplyStatusFilter.urgent:
+        // v1.6：临期+过期合并（小部件深链落点）
+        return _supplies
+            .where((s) => ExpiryService.statusOf(s, warnDays: _warnDays) != ExpiryStatus.normal)
+            .toList();
     }
   }
 
   /// v1.3：是否存在激活的筛选条件（弹窗 Badge 高亮）
-  bool get _hasActiveFilter => _listFilter.isNotEmpty || _filter != _SupplyFilter.all;
+  bool get _hasActiveFilter => _listFilter.isNotEmpty || _filter != SupplyStatusFilter.all;
 
   void _snack(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
@@ -321,9 +333,9 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
     );
     if (result == null || !mounted) return;
     setState(() {
-      _filter = _SupplyFilter.values.firstWhere(
+      _filter = SupplyStatusFilter.values.firstWhere(
         (v) => v.name == result.status,
-        orElse: () => _SupplyFilter.all,
+        orElse: () => SupplyStatusFilter.all,
       );
       _listFilter = result.filter;
     });
@@ -432,9 +444,9 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
                             onTap: () {
                               final status = f.filterJson['status']?.toString();
                               setState(() {
-                                _filter = _SupplyFilter.values.firstWhere(
+                                _filter = SupplyStatusFilter.values.firstWhere(
                                   (v) => v.name == status,
-                                  orElse: () => _SupplyFilter.all,
+                                  orElse: () => SupplyStatusFilter.all,
                                 );
                                 // v1.3：还原分类 + 标签筛选（旧版数据缺键视为未筛选）
                                 _listFilter = ListFilter.fromJson(f.filterJson);
