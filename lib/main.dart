@@ -6,6 +6,7 @@ import 'package:home_widget/home_widget.dart';
 import 'consts.dart';
 import 'pages/dashboard_page.dart';
 import 'pages/supply_list_page.dart';
+import 'service/settings_service.dart';
 import 'service/widget_service.dart';
 
 /// 全局 Navigator key：小部件深链在 App 生命周期的任意时刻入栈
@@ -44,8 +45,10 @@ class _JiaCangBenAppState extends State<JiaCangBenApp> with WidgetsBindingObserv
     super.dispose();
   }
 
-  /// 冷启动：刷新小部件快照 + 处理「由小部件启动」的深链
+  /// 冷启动：刷新小部件快照 + 处理「由小部件启动」的深链 + 载入字体档位
   Future<void> _bootstrap() async {
+    final settings = SettingsService();
+    SettingsService.fontScale.value = await settings.getFontScale();
     await WidgetService().refresh();
     _routeWidgetLaunch(await HomeWidget.initiallyLaunchedFromHomeWidget());
   }
@@ -69,15 +72,23 @@ class _JiaCangBenAppState extends State<JiaCangBenApp> with WidgetsBindingObserv
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: kAppName,
-      navigatorKey: navigatorKey,
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8D6E63)),
+    // v1.8：字体档位即时生效（ValueListenableBuilder 重建 MaterialApp 的 textScaler）
+    return ValueListenableBuilder<double>(
+      valueListenable: SettingsService.fontScale,
+      builder: (context, scale, _) => MaterialApp(
+        title: kAppName,
+        navigatorKey: navigatorKey,
+        debugShowCheckedModeBanner: false,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8D6E63)),
+        ),
+        home: const HomeDashboardPage(),
       ),
-      home: const HomeDashboardPage(),
     );
   }
 }

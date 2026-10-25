@@ -621,6 +621,12 @@ class _HomeSupplyListPageState extends State<HomeSupplyListPage> {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       color: selected ? Theme.of(context).colorScheme.secondaryContainer : null,
+      // v1.8：卡片样式升级——大圆角 + 描边扁平风
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      elevation: 0,
       child: ListTile(
         leading: _selectMode
             ? Icon(

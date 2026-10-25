@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -7,8 +8,14 @@ import '../model/media_attachment.dart';
 import 'database_helper.dart';
 
 /// v1.2：媒体附件数据服务。
-/// 数据库只存本地文件路径；图片文件复制到应用外部存储目录（卸载不随缓存清掉）。
+/// 图片文件复制到应用外部存储目录（卸载不随缓存清掉）。
+/// v1.8：入库时压缩（最长边 1600px、JPEG 85，单文件不留原图）；压缩失败兜底存原文件。
+/// 存量旧图不迁移（v1.8 打磨共识：只管新图）。
 class AttachmentService {
+  /// v1.8：压缩参数——最长边 1600px、JPEG 质量 85（家庭台账看小票/包装足够清晰）
+  static const int kCompressMaxSide = 1600;
+  static const int kCompressQuality = 85;
+
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
 
   /// 图片存放根目录：优先外部存储目录（App 专属外部目录，无需权限），
@@ -42,7 +49,8 @@ class AttachmentService {
     return rows.first['c'] as int;
   }
 
-  /// 把选中的图片复制到应用媒体目录并登记（单事务）
+  /// 把选中的图片压缩落到应用媒体目录并登记（单事务）。
+  /// v1.8：统一转 JPEG；压缩失败（格式不支持/编码器异常）兜底直接拷原文件，不让加图挂掉。
   Future<void> addImages(String ownerType, int ownerId, List<String> pickedPaths) async {
     if (pickedPaths.isEmpty) return;
     final root = await mediaRoot();
@@ -52,9 +60,9 @@ class AttachmentService {
       for (final src in pickedPaths) {
         final source = File(src);
         if (!source.existsSync()) continue;
-        final ext = p.extension(src).toLowerCase();
-        final fileName = '${ownerType}_${ownerId}_${DateTime.now().microsecondsSinceEpoch}$ext';
-        final dest = await source.copy(p.join(root.path, fileName));
+        final fileName = '${ownerType}_${ownerId}_${DateTime.now().microsecondsSinceEpoch}.jpg';
+        final target = p.join(root.path, fileName);
+        final dest = await _compressOrCopy(source, target);
         await txn.insert('media_attachment', {
           'ownerType': ownerType,
           'ownerId': ownerId,
@@ -63,6 +71,28 @@ class AttachmentService {
         });
       }
     });
+  }
+
+  /// v1.8：压缩写盘；失败返回原文件拷贝兜底（XFile 包装回 File 校验非空）
+  Future<File> _compressOrCopy(File source, String targetPath) async {
+    try {
+      final result = await FlutterImageCompress.compressAndGetFile(
+        source.absolute.path,
+        targetPath,
+        minWidth: kCompressMaxSide,
+        minHeight: kCompressMaxSide,
+        quality: kCompressQuality,
+        format: CompressFormat.jpeg,
+        keepExif: false,
+      );
+      if (result != null) {
+        final file = File(result.path);
+        if (file.existsSync() && file.lengthSync() > 0) return file;
+      }
+    } catch (_) {
+      // 兜底：压缩失败不阻断加图
+    }
+    return source.copy(targetPath);
   }
 
   /// 删除单条附件记录（单事务），可选同时删除图片文件

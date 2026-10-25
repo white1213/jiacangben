@@ -17,6 +17,7 @@ import 'backup_restore_page.dart';
 import 'item_list_page.dart';
 import 'location_list_page.dart';
 import 'settings_page.dart';
+import 'stats_page.dart';
 import 'supply_list_page.dart';
 import 'tag_manage_page.dart';
 import 'template_manage_page.dart';
@@ -276,6 +277,8 @@ class _HomeDashboardPageState extends State<HomeDashboardPage> {
         entry(Icons.label_outline, '标签管理', () => _open(const TagManagePage())),
         // v1.2 新增入口
         entry(Icons.playlist_add_check, '录入模板', () => _open(const TemplateManagePage())),
+        // v1.8 新增入口
+        entry(Icons.insights_outlined, '统计', () => _open(const StatsPage())),
       ],
     );
   }

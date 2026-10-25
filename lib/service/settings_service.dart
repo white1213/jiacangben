@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../consts.dart';
@@ -9,6 +11,25 @@ import '../model/list_filter.dart';
 class SettingsService {
   static const String _keyWarnDays = 'expiryWarnDays';
   static const String _keyActiveFilterPrefix = 'activeFilter_';
+  static const String _keyFontScale = 'fontScale';
+
+  /// v1.8：合法字体缩放档位（小 / 标准 / 大）
+  static const List<double> kFontScaleOptions = [0.9, 1.0, 1.2];
+
+  /// v1.8：全局字体缩放（ValueNotifier 供 MaterialApp 即时生效，无需重启）
+  static final ValueNotifier<double> fontScale = ValueNotifier<double>(1.0);
+
+  Future<double> getFontScale() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getDouble(_keyFontScale) ?? 1.0;
+    return kFontScaleOptions.contains(v) ? v : 1.0; // 防御：档位外回退标准
+  }
+
+  Future<void> setFontScale(double scale) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_keyFontScale, scale);
+    fontScale.value = scale;
+  }
 
   /// 临期预警天数（默认 30）
   Future<int> getWarnDays() async {

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 夜间启动底色稍深，避免刺眼 -->
+    <color name="launch_bg">#5D4037</color>
+</resources>

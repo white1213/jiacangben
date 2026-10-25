@@ -55,6 +55,13 @@ class ConsumeLogService {
     });
   }
 
+  /// 全部出库流水（时间正序）——v1.8 统计页月度消耗趋势用
+  Future<List<ConsumeLog>> listAll() async {
+    final db = await _dbHelper.database;
+    final rows = await db.query('consume_log', orderBy: 'consumeTime ASC, id ASC');
+    return rows.map(ConsumeLog.fromMap).toList();
+  }
+
   /// 某物资的全部出库流水（时间倒序），仅查阅用
   Future<List<ConsumeLog>> listBySupply(int supplyId) async {
     final db = await _dbHelper.database;

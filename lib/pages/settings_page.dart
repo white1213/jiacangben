@@ -15,6 +15,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final SettingsService _settings = SettingsService();
 
   int _warnDays = kExpiringSoonDays;
+  double _fontScale = 1.0;
 
   @override
   void initState() {
@@ -24,8 +25,18 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _load() async {
     final days = await _settings.getWarnDays();
+    final fontScale = await _settings.getFontScale();
     if (!mounted) return;
-    setState(() => _warnDays = days);
+    setState(() {
+      _warnDays = days;
+      _fontScale = fontScale;
+    });
+  }
+
+  /// v1.8：切换字体档位（即时生效，全 App 缩放）
+  Future<void> _setFontScale(double scale) async {
+    setState(() => _fontScale = scale);
+    await _settings.setFontScale(scale);
   }
 
   /// 修改临期预警天数
@@ -74,6 +85,33 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: Text('当前：$_warnDays 天（距失效时间 ≤ $_warnDays 天标记为临期）'),
             trailing: const Icon(Icons.edit_outlined),
             onTap: _editWarnDays,
+          ),
+          const Divider(),
+          // v1.8：字体档位三档即时生效
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.format_size_outlined),
+                    const SizedBox(width: 16),
+                    Expanded(child: Text('字体大小（全 App 即时生效）')),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                SegmentedButton<double>(
+                  segments: const [
+                    ButtonSegment(value: 0.9, label: Text('小')),
+                    ButtonSegment(value: 1.0, label: Text('标准')),
+                    ButtonSegment(value: 1.2, label: Text('大')),
+                  ],
+                  selected: {_fontScale},
+                  onSelectionChanged: (s) => _setFontScale(s.first),
+                ),
+              ],
+            ),
           ),
           const Divider(),
           const ListTile(

@@ -157,6 +157,8 @@ class _AttachmentSectionState extends State<AttachmentSection> {
                     width: 72,
                     height: 72,
                     fit: BoxFit.cover,
+                    // v1.8：按控件尺寸便宜解码（72 逻辑像素 × 3 倍屏），未压缩的旧图也受益
+                    cacheWidth: 216,
                     errorBuilder: (_, __, ___) => Container(
                       width: 72,
                       height: 72,
